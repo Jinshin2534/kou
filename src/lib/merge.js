@@ -6,10 +6,13 @@ export function defaultChoices(hunks) {
   return choices;
 }
 
+const CHOICES = ['a', 'b', 'both'];
+
 export function mergeParagraphs(hunks, choices = {}) {
   const out = [];
   hunks.forEach((h, i) => {
-    const choice = choices[i] ?? 'b';
+    // 想定外の値は既定の 'b' に倒す。add ハンクだけ黙って段落が消えるのを防ぐ。
+    const choice = CHOICES.includes(choices[i]) ? choices[i] : 'b';
     if (h.type === 'equal') {
       out.push(h.a);
       return;

@@ -59,4 +59,22 @@ describe('mergeParagraphs', () => {
     const choices = Object.fromEntries(hunks.map((_, i) => [i, 'a']));
     expect(mergeParagraphs(hunks, choices)).toEqual(a);
   });
+
+  it('削除と追加が混ざっていても、全て a なら比較元・全て b なら比較先と一致する', () => {
+    const a = ['共通', '風が冷たい', '消える段落', '末尾'];
+    const b = ['共通', '雨が冷たい', 'まったく別の文', '増える段落', '末尾'];
+    const mixed = diffParagraphs(a, b);
+    expect(mixed.map((h) => h.type)).toContain('remove');
+    expect(mixed.map((h) => h.type)).toContain('add');
+
+    const allA = Object.fromEntries(mixed.map((_, i) => [i, 'a']));
+    const allB = Object.fromEntries(mixed.map((_, i) => [i, 'b']));
+    expect(mergeParagraphs(mixed, allA)).toEqual(a);
+    expect(mergeParagraphs(mixed, allB)).toEqual(b);
+  });
+
+  it('想定外の選択値は b として扱い、段落を落とさない', () => {
+    const h = diffParagraphs(['あ'], ['あ', 'い']);
+    expect(mergeParagraphs(h, { 1: 'x' })).toEqual(['あ', 'い']);
+  });
 });
