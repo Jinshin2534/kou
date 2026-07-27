@@ -1,6 +1,11 @@
 import { countChars, countManuscriptPages } from '../lib/counter.js';
 
-const SAVE_DELAY = 600;
+const SAVE_LABEL = {
+  saved: '保存済み',
+  saving: '保存中',
+  dirty: '編集中',
+  failed: '保存できていません',
+};
 
 export function renderWrite({ state, data, actions }) {
   const chapter = data.chapters.find((c) => c.id === state.chapterId);
@@ -15,9 +20,12 @@ export function renderWrite({ state, data, actions }) {
   title.textContent = chapter ? chapter.title : '';
   const meta = document.createElement('span');
   meta.className = 'write__meta';
+  // 参照を持っておく。Task 11 で異稿の切り替えが同じ入れ物に入るため、
+  // 位置で取りに行くと別の要素に書き込んでしまう。
+  const countSpan = document.createElement('span');
   const draftName = document.createElement('span');
   draftName.textContent = draft ? draft.name : '';
-  meta.append(document.createElement('span'), draftName);
+  meta.append(countSpan, draftName);
   header.append(title, meta);
 
   const editor = document.createElement('textarea');
@@ -33,19 +41,19 @@ export function renderWrite({ state, data, actions }) {
 
   function updateMeta() {
     const text = editor.value;
-    meta.firstChild.textContent = `${countChars(text).toLocaleString()}字 ／ ${countManuscriptPages(text)}枚`;
+    countSpan.textContent = `${countChars(text).toLocaleString()}字 ／ ${countManuscriptPages(text)}枚`;
   }
 
-  let timer = null;
+  function paintSaveState() {
+    saveLabel.textContent = SAVE_LABEL[state.saveState] ?? '';
+  }
+
+  actions.onSaveState(paintSaveState);
+
   editor.addEventListener('input', () => {
     updateMeta();
-    state.saveState = 'dirty';
-    saveLabel.textContent = '編集中';
-    clearTimeout(timer);
-    timer = setTimeout(async () => {
-      await actions.setText(editor.value);
-      saveLabel.textContent = '保存済み';
-    }, SAVE_DELAY);
+    actions.queueText(editor.value);
+    paintSaveState();
   });
 
   if (state.typewriter) {
@@ -53,9 +61,8 @@ export function renderWrite({ state, data, actions }) {
     editor.addEventListener('click', () => scrollCaretToCenter(editor));
   }
 
-  root.classList.toggle('write--focus', state.focusMode);
   updateMeta();
-  saveLabel.textContent = '保存済み';
+  paintSaveState();
   root.append(header, editor, footer);
   return root;
 }
