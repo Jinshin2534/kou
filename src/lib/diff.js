@@ -28,15 +28,63 @@ function lcsOps(a, b) {
   return ops;
 }
 
+// LCS のテーブルは長さの積に比例して確保されるため、上限を設ける。
+// これを超える書き換えは、文字単位の差分を諦めて段落まるごとの置換として返す。
+const MAX_CELLS = 4_000_000;
+
+// 似ていない段落どうしを「書き換え」として並べると比較画面が誤解を招くため、
+// 一致した文字が長い方の 3 割に満たないペアは、削除と追加に分けて出す。
+const PAIR_THRESHOLD = 0.3;
+
 export function diffChars(a, b) {
-  const out = [];
-  for (const op of lcsOps([...a], [...b])) {
-    const value = op.type === 'add' ? op.b : op.a;
-    const last = out[out.length - 1];
-    if (last && last.type === op.type) last.value += value;
-    else out.push({ type: op.type, value });
+  const ac = [...a];
+  const bc = [...b];
+
+  let head = 0;
+  while (head < ac.length && head < bc.length && ac[head] === bc[head]) head++;
+
+  let tail = 0;
+  while (
+    tail < ac.length - head &&
+    tail < bc.length - head &&
+    ac[ac.length - 1 - tail] === bc[bc.length - 1 - tail]
+  ) {
+    tail++;
   }
+
+  const out = [];
+  const push = (type, value) => {
+    if (value === '') return;
+    const last = out[out.length - 1];
+    if (last && last.type === type) last.value += value;
+    else out.push({ type, value });
+  };
+
+  push('equal', ac.slice(0, head).join(''));
+
+  const midA = ac.slice(head, ac.length - tail);
+  const midB = bc.slice(head, bc.length - tail);
+
+  if (midA.length * midB.length > MAX_CELLS) {
+    push('remove', midA.join(''));
+    push('add', midB.join(''));
+  } else {
+    for (const op of lcsOps(midA, midB)) {
+      push(op.type, op.type === 'add' ? op.b : op.a);
+    }
+  }
+
+  push('equal', ac.slice(ac.length - tail).join(''));
   return out;
+}
+
+function similarity(inline, a, b) {
+  const longer = Math.max([...a].length, [...b].length);
+  if (longer === 0) return 1;
+  const equal = inline
+    .filter((part) => part.type === 'equal')
+    .reduce((sum, part) => sum + [...part.value].length, 0);
+  return equal / longer;
 }
 
 export function diffParagraphs(aParas, bParas) {
@@ -54,16 +102,27 @@ export function diffParagraphs(aParas, bParas) {
     const adds = [];
     while (i < ops.length && ops[i].type === 'add') adds.push(ops[i++].b);
     const pairs = Math.min(removes.length, adds.length);
+    const changes = [];
+    const restRemoves = [];
+    const restAdds = [];
+
     for (let k = 0; k < pairs; k++) {
-      hunks.push({
-        type: 'change',
-        a: removes[k],
-        b: adds[k],
-        inline: diffChars(removes[k], adds[k]),
-      });
+      const inline = diffChars(removes[k], adds[k]);
+      if (similarity(inline, removes[k], adds[k]) >= PAIR_THRESHOLD) {
+        changes.push({ type: 'change', a: removes[k], b: adds[k], inline });
+      } else {
+        restRemoves.push(removes[k]);
+        restAdds.push(adds[k]);
+      }
     }
-    for (let k = pairs; k < removes.length; k++) hunks.push({ type: 'remove', a: removes[k] });
-    for (let k = pairs; k < adds.length; k++) hunks.push({ type: 'add', b: adds[k] });
+    for (let k = pairs; k < removes.length; k++) restRemoves.push(removes[k]);
+    for (let k = pairs; k < adds.length; k++) restAdds.push(adds[k]);
+
+    hunks.push(
+      ...changes,
+      ...restRemoves.map((a) => ({ type: 'remove', a })),
+      ...restAdds.map((b) => ({ type: 'add', b })),
+    );
   }
   return hunks;
 }
