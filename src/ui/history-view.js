@@ -103,9 +103,11 @@ export function renderHistory({ state, data, actions }) {
 
     const branch = document.createElement('button');
     branch.className = 'history__restore';
-    branch.textContent = 'ここから版を切る';
+    branch.textContent = 'ここを起点に版を切る';
     branch.addEventListener('click', () => {
-      const name = prompt('版の名前（例: 主人公が死ぬ版）');
+      // 版の中身は「今の内容」の複製で、この地点まで巻き戻したものではない。
+      // baseCommitId は分岐点の記録としてだけ持つ。
+      const name = prompt('この地点を分岐点として記録し、今の内容から新しい版を作ります。\n版の名前（例: 主人公が死ぬ版）');
       if (name) actions.createVersion(name, node.id);
     });
 
