@@ -145,6 +145,42 @@ export function createApp(store) {
       await reload();
       render();
     },
+    // reload() は store から章・異稿を読み直す。直前の入力がまだ保存タイマー待ちのまま
+    // reload すると、その未保存分が古いテキストで上書き表示されてしまう。
+    // だからここでも flushSave() を最初に呼ぶ（章 id を変えない moveChapter/updateChapter でも同様）。
+    async addChapter(title) {
+      await flushSave();
+      const chapter = await store.createChapter(state.workId, state.versionId, title);
+      state.chapterId = chapter.id;
+      state.draftId = null;
+      await reload();
+      render();
+    },
+    async updateChapter(chapterId, patch) {
+      await flushSave();
+      await store.updateChapter(state.workId, chapterId, patch);
+      await reload();
+      render();
+    },
+    async deleteChapter(chapterId) {
+      await flushSave();
+      if (data.chapters.length <= 1) return;
+      await store.deleteChapter(state.workId, chapterId);
+      if (state.chapterId === chapterId) state.chapterId = null;
+      await reload();
+      render();
+    },
+    async moveChapter(chapterId, delta) {
+      await flushSave();
+      const ids = data.chapters.map((c) => c.id);
+      const from = ids.indexOf(chapterId);
+      const to = from + delta;
+      if (from < 0 || to < 0 || to >= ids.length) return;
+      ids.splice(to, 0, ids.splice(from, 1)[0]);
+      await store.reorderChapters(state.workId, ids);
+      await reload();
+      render();
+    },
   };
 
   return {

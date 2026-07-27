@@ -1,4 +1,5 @@
 import { countChars, countManuscriptPages } from '../lib/counter.js';
+import { renderChapters } from './chapters.js';
 
 const SAVE_LABEL = {
   saved: '保存済み',
@@ -27,6 +28,12 @@ export function renderWrite({ state, data, actions }) {
   draftName.textContent = draft ? draft.name : '';
   meta.append(countSpan, draftName);
   header.append(title, meta);
+
+  const toggle = document.createElement('button');
+  toggle.className = 'write__toggle';
+  toggle.textContent = '章立て';
+  toggle.addEventListener('click', () => root.classList.toggle('write--panel'));
+  header.prepend(toggle);
 
   const editor = document.createElement('textarea');
   editor.className = 'write__editor';
@@ -104,7 +111,7 @@ export function renderWrite({ state, data, actions }) {
   updateMeta();
   paintSaveState();
   paintFocus();
-  root.append(header, stack, footer);
+  root.append(header, stack, footer, renderChapters({ state, data, actions }));
 
   root.tabIndex = -1;
   root.addEventListener('keydown', (e) => {
