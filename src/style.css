@@ -61,3 +61,46 @@ body {
   overflow-x: auto;
   overflow-y: hidden;
 }
+
+.write__stack {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+}
+
+.write__stack > .write__editor,
+.write__ghost {
+  position: absolute;
+  inset: 0;
+  writing-mode: vertical-rl;
+  font-family: var(--kou-editor-font);
+  font-size: var(--kou-editor-size);
+  line-height: var(--kou-editor-line);
+  letter-spacing: var(--kou-editor-spacing);
+  padding: 8px 40px 40px;
+  box-sizing: border-box;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.write__ghost {
+  color: var(--fgColor-muted);
+  white-space: pre-wrap;
+  pointer-events: none;
+}
+
+.write__ghost .is-current {
+  color: var(--fgColor-default);
+}
+
+.write__editor--focus {
+  color: transparent;
+  caret-color: var(--fgColor-default);
+  background: transparent;
+}
+
+.write--bare .write__header,
+.write--bare .write__footer {
+  opacity: 0;
+  pointer-events: none;
+}

@@ -34,6 +34,36 @@ export function renderWrite({ state, data, actions }) {
   editor.value = draft ? draft.text : '';
   editor.setAttribute('aria-label', '本文');
 
+  const stack = document.createElement('div');
+  stack.className = 'write__stack';
+  const ghost = document.createElement('div');
+  ghost.className = 'write__ghost';
+  ghost.setAttribute('aria-hidden', 'true');
+  stack.append(ghost, editor);
+
+  function paintFocus() {
+    if (!state.focusMode) {
+      ghost.replaceChildren();
+      editor.classList.remove('write__editor--focus');
+      return;
+    }
+    editor.classList.add('write__editor--focus');
+    const caret = editor.selectionStart;
+    const paragraphs = editor.value.split('\n');
+    let pos = 0;
+    ghost.replaceChildren(
+      ...paragraphs.map((line, i) => {
+        const start = pos;
+        pos += line.length + 1;
+        const el = document.createElement('div');
+        el.textContent = line === '' ? '​' : line;
+        el.className = caret >= start && caret <= start + line.length ? 'is-current' : '';
+        return el;
+      }),
+    );
+    ghost.scrollLeft = editor.scrollLeft;
+  }
+
   const footer = document.createElement('div');
   footer.className = 'write__footer';
   const saveLabel = document.createElement('span');
@@ -51,10 +81,15 @@ export function renderWrite({ state, data, actions }) {
   actions.onSaveState(paintSaveState);
 
   editor.addEventListener('input', () => {
+    paintFocus();
     updateMeta();
     actions.queueText(editor.value);
     paintSaveState();
   });
+
+  editor.addEventListener('scroll', () => { ghost.scrollLeft = editor.scrollLeft; });
+  editor.addEventListener('keyup', paintFocus);
+  editor.addEventListener('click', paintFocus);
 
   if (state.typewriter) {
     editor.addEventListener('keyup', () => scrollCaretToCenter(editor));
@@ -63,7 +98,16 @@ export function renderWrite({ state, data, actions }) {
 
   updateMeta();
   paintSaveState();
-  root.append(header, editor, footer);
+  paintFocus();
+  root.append(header, stack, footer);
+
+  root.tabIndex = -1;
+  root.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+      root.classList.toggle('write--bare');
+    }
+  });
+
   return root;
 }
 
