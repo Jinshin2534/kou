@@ -84,6 +84,30 @@ export function renderWrite({ state, data, actions }) {
   commitButton.addEventListener('click', () => doCommit());
   header.prepend(commitButton);
 
+  const versionPicker = document.createElement('select');
+  versionPicker.className = 'write__version';
+  for (const v of data.versions) {
+    const option = document.createElement('option');
+    option.value = v.id;
+    option.textContent = v.name;
+    option.selected = v.id === state.versionId;
+    versionPicker.append(option);
+  }
+  const newVersion = document.createElement('option');
+  newVersion.value = '__new__';
+  newVersion.textContent = '＋ 新しい版を切る…';
+  versionPicker.append(newVersion);
+  versionPicker.addEventListener('change', () => {
+    if (versionPicker.value === '__new__') {
+      const name = prompt('版の名前（例: 主人公が死ぬ版）');
+      if (name) actions.createVersion(name);
+      else actions.reload();
+      return;
+    }
+    actions.switchVersion(versionPicker.value);
+  });
+  header.prepend(versionPicker);
+
   async function doCommit() {
     await actions.setText(editor.value);
     const message = prompt('何をしたか（例: 第三章 冒頭を雨に変更）');

@@ -313,6 +313,25 @@ export function createApp(store) {
       render();
       return commit;
     },
+    async switchVersion(versionId) {
+      await flushSave();
+      state.versionId = versionId;
+      state.chapterId = null;
+      state.draftId = null;
+      await store.updateWork(state.workId, { currentVersionId: versionId });
+      await reload();
+      render();
+    },
+    async createVersion(name, baseCommitId = null) {
+      await flushSave();
+      const version = await store.createVersion(state.workId, {
+        fromVersionId: state.versionId,
+        name,
+        baseCommitId,
+      });
+      await actions.switchVersion(version.id);
+      return version;
+    },
     async restore(commitId) {
       await flushSave();
       const snapshot = chaptersAt(data.commits, commitId);

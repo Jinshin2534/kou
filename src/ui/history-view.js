@@ -101,7 +101,15 @@ export function renderHistory({ state, data, actions }) {
       }
     });
 
-    li.append(dot, label, version, from, to, restore);
+    const branch = document.createElement('button');
+    branch.className = 'history__restore';
+    branch.textContent = 'ここから版を切る';
+    branch.addEventListener('click', () => {
+      const name = prompt('版の名前（例: 主人公が死ぬ版）');
+      if (name) actions.createVersion(name, node.id);
+    });
+
+    li.append(dot, label, version, from, to, restore, branch);
     list.append(li);
   }
 

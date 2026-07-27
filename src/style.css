@@ -431,3 +431,13 @@ body {
   color: var(--fgColor-muted);
   margin-top: 24px;
 }
+
+.write__version {
+  background: var(--bgColor-default);
+  border: 1px solid var(--borderColor-default);
+  border-radius: 6px;
+  color: var(--fgColor-default);
+  font: inherit;
+  font-size: 11px;
+  padding: 2px 6px;
+}
