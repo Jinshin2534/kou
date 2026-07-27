@@ -1,6 +1,7 @@
 import { renderWrite } from './write.js';
+import { renderCompare } from './compare.js';
 
-const SCREENS = { write: renderWrite };
+const SCREENS = { write: renderWrite, compare: renderCompare };
 const SAVE_DELAY = 600;
 
 export function createApp(store) {
@@ -16,10 +17,11 @@ export function createApp(store) {
     focusMode: true,
     typewriter: true,
     saveState: 'saved',
+    compare: { source: 'drafts', leftId: null, rightId: null, choices: {} },
   };
 
   let root = null;
-  let data = { work: null, versions: [], chapters: [], drafts: [] };
+  let data = { work: null, versions: [], chapters: [], drafts: [], commits: [] };
 
   async function reload() {
     if (!state.workId) return;
@@ -36,6 +38,7 @@ export function createApp(store) {
       const chapter = data.chapters.find((c) => c.id === state.chapterId);
       state.draftId = chapter?.primaryDraftId ?? data.drafts[0]?.id ?? null;
     }
+    data.commits = await store.listCommits(state.workId);
   }
 
   let saveListeners = [];
@@ -130,7 +133,41 @@ export function createApp(store) {
     },
     async setScreen(screen) {
       await flushSave();
+      if (screen === 'compare') {
+        const others = data.drafts.filter((d) => d.id !== state.draftId);
+        state.compare = {
+          source: 'drafts',
+          leftId: others[0]?.id ?? state.draftId,
+          rightId: state.draftId,
+          choices: {},
+        };
+      }
       state.screen = screen;
+      render();
+    },
+    setCompare(patch) {
+      Object.assign(state.compare, patch);
+      render();
+    },
+    async applyMerge(text) {
+      if (state.compare.source === 'commits') {
+        const draft = await store.createDraft(state.workId, state.chapterId, {
+          name: `マージ ${new Date().toLocaleString('ja-JP')}`,
+          text,
+        });
+        state.draftId = draft.id;
+      } else {
+        await store.updateDraft(state.workId, state.compare.rightId, { text });
+        state.draftId = state.compare.rightId;
+      }
+      state.screen = 'write';
+      await reload();
+      render();
+    },
+    async compareCommits(leftId, rightId) {
+      await flushSave();
+      state.compare = { source: 'commits', leftId, rightId, choices: {} };
+      state.screen = 'compare';
       render();
     },
     toggleFocus() {

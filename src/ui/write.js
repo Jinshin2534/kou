@@ -64,6 +64,12 @@ export function renderWrite({ state, data, actions }) {
   toggle.addEventListener('click', () => root.classList.toggle('write--panel'));
   header.prepend(toggle);
 
+  const compareButton = document.createElement('button');
+  compareButton.className = 'write__toggle';
+  compareButton.textContent = '比較';
+  compareButton.addEventListener('click', () => actions.setScreen('compare'));
+  header.prepend(compareButton);
+
   const editor = document.createElement('textarea');
   editor.className = 'write__editor';
   editor.spellcheck = false;
