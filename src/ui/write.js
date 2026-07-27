@@ -95,7 +95,6 @@ export function renderWrite({ state, data, actions }) {
   editor.addEventListener('select', paintFocus);
   editor.addEventListener('click', paintFocus);
   editor.addEventListener('focus', paintFocus);
-  paintFocus();
 
   if (state.typewriter) {
     editor.addEventListener('keyup', () => scrollCaretToCenter(editor));
