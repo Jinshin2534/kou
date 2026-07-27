@@ -201,9 +201,17 @@ export function createLocalStore({
 
     async reorderChapters(workId, orderedIds) {
       mutate((db) => {
-        orderedIds.forEach((id, index) => {
-          const chapter = db.chapters.find((c) => c.id === id);
-          if (chapter) chapter.order = index;
+        // 渡されなかった章は、渡された章の後ろに元の順序のまま並べ直す。
+        // 部分的なリストを渡されても order が重複しないようにする。
+        const listed = orderedIds
+          .map((id) => db.chapters.find((c) => c.id === id))
+          .filter((c) => c && c.workId === workId);
+        const versionIds = new Set(listed.map((c) => c.versionId));
+        const rest = db.chapters
+          .filter((c) => versionIds.has(c.versionId) && !listed.includes(c))
+          .sort((a, b) => a.order - b.order);
+        [...listed, ...rest].forEach((chapter, index) => {
+          chapter.order = index;
         });
       });
     },

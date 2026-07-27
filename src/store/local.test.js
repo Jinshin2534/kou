@@ -66,6 +66,19 @@ describe('章と異稿', () => {
     expect(after.map((c) => c.title)).toEqual(['第二章', '第一章']);
   });
 
+  it('一部の章だけ渡して並べ替えても order が重複しない', async () => {
+    const work = await store.createWork('雨の駅');
+    await store.createChapter(work.id, work.currentVersionId, '第二章');
+    await store.createChapter(work.id, work.currentVersionId, '第三章');
+    const [first, , third] = await store.listChapters(work.id, work.currentVersionId);
+
+    await store.reorderChapters(work.id, [third.id, first.id]);
+
+    const after = await store.listChapters(work.id, work.currentVersionId);
+    expect(after.map((c) => c.title)).toEqual(['第三章', '第一章', '第二章']);
+    expect(after.map((c) => c.order)).toEqual([0, 1, 2]);
+  });
+
   it('本文を保存して読み出せる', async () => {
     const work = await store.createWork('雨の駅');
     const [chapter] = await store.listChapters(work.id, work.currentVersionId);
