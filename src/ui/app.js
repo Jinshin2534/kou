@@ -1,7 +1,9 @@
 import { renderWrite } from './write.js';
 import { renderCompare } from './compare.js';
+import { renderHistory } from './history-view.js';
+import { chaptersAt } from '../lib/history.js';
 
-const SCREENS = { write: renderWrite, compare: renderCompare };
+const SCREENS = { write: renderWrite, compare: renderCompare, history: renderHistory };
 const SAVE_DELAY = 600;
 
 export function createApp(store) {
@@ -39,6 +41,15 @@ export function createApp(store) {
       state.draftId = chapter?.primaryDraftId ?? data.drafts[0]?.id ?? null;
     }
     data.commits = await store.listCommits(state.workId);
+  }
+
+  // data.commits は store から返ってきた挿入順(=作成順)のまま保持される。createdAt は
+  // ミリ秒精度しかなく、同一 ms に複数コミットが作られると createdAt だけでの並べ替えは
+  // 逆転しうる（Array#sort は安定ソートなので、同着なら元の並び=作成順が保たれる）。
+  // そのため「最新」を作成順(配列の末尾)で判定し、誤った親を拾わないようにする。
+  function headCommitId() {
+    const ours = data.commits.filter((c) => c.versionId === state.versionId);
+    return ours.length ? ours[ours.length - 1].id : null;
   }
 
   let saveListeners = [];
@@ -267,6 +278,44 @@ export function createApp(store) {
     async setPrimaryDraft(draftId) {
       await flushSave();
       await store.updateChapter(state.workId, state.chapterId, { primaryDraftId: draftId });
+      await reload();
+      render();
+    },
+    async commit(message) {
+      const head = headCommitId();
+      const previous = head ? chaptersAt(data.commits, head) : {};
+      const chapters = {};
+      for (const chapter of data.chapters) {
+        const draft = (await store.listDrafts(state.workId, chapter.id)).find(
+          (d) => d.id === chapter.primaryDraftId,
+        );
+        const snapshot = { title: chapter.title, text: draft ? draft.text : '' };
+        const before = previous[chapter.id];
+        if (!before || before.title !== snapshot.title || before.text !== snapshot.text) {
+          chapters[chapter.id] = snapshot;
+        }
+      }
+      if (Object.keys(chapters).length === 0) return null;
+      const commit = await store.createCommit(state.workId, {
+        versionId: state.versionId,
+        message,
+        parentId: head,
+        chapters,
+      });
+      await reload();
+      render();
+      return commit;
+    },
+    async restore(commitId) {
+      const snapshot = chaptersAt(data.commits, commitId);
+      for (const [chapterId, chapter] of Object.entries(snapshot)) {
+        if (!data.chapters.some((c) => c.id === chapterId)) continue;
+        await store.createDraft(state.workId, chapterId, {
+          name: `復元 ${new Date().toLocaleString('ja-JP')}`,
+          text: chapter.text,
+        });
+      }
+      state.screen = 'write';
       await reload();
       render();
     },

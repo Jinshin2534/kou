@@ -70,6 +70,33 @@ export function renderWrite({ state, data, actions }) {
   compareButton.addEventListener('click', () => actions.setScreen('compare'));
   header.prepend(compareButton);
 
+  const historyButton = document.createElement('button');
+  historyButton.className = 'write__toggle';
+  historyButton.textContent = '履歴';
+  historyButton.addEventListener('click', () => actions.setScreen('history'));
+  header.prepend(historyButton);
+
+  const commitButton = document.createElement('button');
+  commitButton.className = 'write__toggle';
+  commitButton.textContent = '記録する';
+  commitButton.addEventListener('click', () => doCommit());
+  header.prepend(commitButton);
+
+  async function doCommit() {
+    await actions.setText(editor.value);
+    const message = prompt('何をしたか（例: 第三章 冒頭を雨に変更）');
+    if (!message) return;
+    const commit = await actions.commit(message);
+    // actions.commit() は内部で reload()+render() を行い、この画面をまるごと
+    // 新しい DOM ツリーに差し替える。上のクロージャが握っている saveLabel は
+    // その時点で切り離されて画面から見えなくなっているので、書き込んでも
+    // 表示に反映されない。差し替え後の実物を取り直してから書く。
+    const currentLabel = document.querySelector('.write__footer span');
+    if (currentLabel) {
+      currentLabel.textContent = commit ? '記録しました' : '前回から変更がありません';
+    }
+  }
+
   const editor = document.createElement('textarea');
   editor.className = 'write__editor';
   editor.spellcheck = false;
@@ -154,6 +181,10 @@ export function renderWrite({ state, data, actions }) {
     if (e.isComposing) return;
     if (e.key === 'Escape') {
       root.classList.toggle('write--bare');
+    }
+    if ((e.metaKey || e.ctrlKey) && e.key === 's') {
+      e.preventDefault();
+      doCommit();
     }
   });
 
