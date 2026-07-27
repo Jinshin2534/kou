@@ -44,6 +44,35 @@ body {
   gap: 16px;
 }
 
+.drafts {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.drafts__item,
+.drafts__add,
+.drafts__primary {
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 20px;
+  color: var(--fgColor-muted);
+  font: inherit;
+  font-size: 11px;
+  padding: 2px 10px;
+  cursor: pointer;
+}
+
+.drafts__item.is-current {
+  background: var(--bgColor-accent-muted);
+  color: var(--fgColor-accent);
+}
+
+.drafts__add,
+.drafts__primary {
+  border-color: var(--borderColor-default);
+}
+
 .write__editor {
   flex: 1;
   writing-mode: vertical-rl;

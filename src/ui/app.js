@@ -181,6 +181,47 @@ export function createApp(store) {
       await reload();
       render();
     },
+    // 異稿 (draft) の操作。ここも章操作と同じ理由で flushSave() を最初に呼ぶ:
+    // reload() が data.drafts を store から読み直すため、保存タイマー待ちの
+    // 未保存キー入力があるとそれが古いテキストで上書きされてしまう。
+    // 特に addDraft は「今の異稿の text」をコピー元にするので、flush 前だと
+    // コピーされる内容が最新のキー入力を欠いた古いものになる。
+    async addDraft(name, { copyFromCurrent = true } = {}) {
+      await flushSave();
+      const current = data.drafts.find((d) => d.id === state.draftId);
+      const draft = await store.createDraft(state.workId, state.chapterId, {
+        name,
+        text: copyFromCurrent && current ? current.text : '',
+      });
+      state.draftId = draft.id;
+      await reload();
+      render();
+    },
+    async renameDraft(draftId, name) {
+      await flushSave();
+      await store.updateDraft(state.workId, draftId, { name });
+      await reload();
+      render();
+    },
+    async deleteDraft(draftId) {
+      await flushSave();
+      if (data.drafts.length <= 1) return;
+      const chapter = data.chapters.find((c) => c.id === state.chapterId);
+      if (chapter.primaryDraftId === draftId) {
+        const next = data.drafts.find((d) => d.id !== draftId);
+        await store.updateChapter(state.workId, chapter.id, { primaryDraftId: next.id });
+      }
+      await store.deleteDraft(state.workId, draftId);
+      if (state.draftId === draftId) state.draftId = null;
+      await reload();
+      render();
+    },
+    async setPrimaryDraft(draftId) {
+      await flushSave();
+      await store.updateChapter(state.workId, state.chapterId, { primaryDraftId: draftId });
+      await reload();
+      render();
+    },
   };
 
   return {

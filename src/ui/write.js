@@ -24,9 +24,38 @@ export function renderWrite({ state, data, actions }) {
   // 参照を持っておく。Task 11 で異稿の切り替えが同じ入れ物に入るため、
   // 位置で取りに行くと別の要素に書き込んでしまう。
   const countSpan = document.createElement('span');
-  const draftName = document.createElement('span');
-  draftName.textContent = draft ? draft.name : '';
-  meta.append(countSpan, draftName);
+  const draftPicker = document.createElement('div');
+  draftPicker.className = 'drafts';
+
+  for (const d of data.drafts) {
+    const b = document.createElement('button');
+    b.className = 'drafts__item' + (d.id === state.draftId ? ' is-current' : '');
+    b.textContent = d.name + (chapter && chapter.primaryDraftId === d.id ? '（本文）' : '');
+    b.addEventListener('click', () => actions.selectDraft(d.id));
+    b.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      const name = prompt('異稿の名前', d.name);
+      if (name) actions.renameDraft(d.id, name);
+    });
+    draftPicker.append(b);
+  }
+
+  const addDraft = document.createElement('button');
+  addDraft.className = 'drafts__add';
+  addDraft.textContent = '＋書き比べ';
+  addDraft.addEventListener('click', () => {
+    const name = prompt('異稿の名前', `異稿${data.drafts.length + 1}`);
+    if (name) actions.addDraft(name);
+  });
+  draftPicker.append(addDraft);
+
+  const primaryButton = document.createElement('button');
+  primaryButton.className = 'drafts__primary';
+  primaryButton.textContent = 'これを本文にする';
+  primaryButton.addEventListener('click', () => actions.setPrimaryDraft(state.draftId));
+  draftPicker.append(primaryButton);
+
+  meta.append(countSpan, draftPicker);
   header.append(title, meta);
 
   const toggle = document.createElement('button');
