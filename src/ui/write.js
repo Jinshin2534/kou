@@ -6,6 +6,8 @@ const SAVE_LABEL = {
   saving: '保存中',
   dirty: '編集中',
   failed: '保存できていません',
+  committed: '記録しました',
+  unchanged: '前回から変更がありません',
 };
 
 export function renderWrite({ state, data, actions }) {
@@ -86,15 +88,7 @@ export function renderWrite({ state, data, actions }) {
     await actions.setText(editor.value);
     const message = prompt('何をしたか（例: 第三章 冒頭を雨に変更）');
     if (!message) return;
-    const commit = await actions.commit(message);
-    // actions.commit() は内部で reload()+render() を行い、この画面をまるごと
-    // 新しい DOM ツリーに差し替える。上のクロージャが握っている saveLabel は
-    // その時点で切り離されて画面から見えなくなっているので、書き込んでも
-    // 表示に反映されない。差し替え後の実物を取り直してから書く。
-    const currentLabel = document.querySelector('.write__footer span');
-    if (currentLabel) {
-      currentLabel.textContent = commit ? '記録しました' : '前回から変更がありません';
-    }
+    await actions.commit(message);
   }
 
   const editor = document.createElement('textarea');

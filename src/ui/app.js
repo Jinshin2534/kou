@@ -295,18 +295,26 @@ export function createApp(store) {
           chapters[chapter.id] = snapshot;
         }
       }
-      if (Object.keys(chapters).length === 0) return null;
+      // 結果は state.saveState に載せる。render() で画面が作り直されるため、
+      // 呼び出し側が握っている DOM 要素に書いても表示されない。
+      if (Object.keys(chapters).length === 0) {
+        state.saveState = 'unchanged';
+        render();
+        return null;
+      }
       const commit = await store.createCommit(state.workId, {
         versionId: state.versionId,
         message,
         parentId: head,
         chapters,
       });
+      state.saveState = 'committed';
       await reload();
       render();
       return commit;
     },
     async restore(commitId) {
+      await flushSave();
       const snapshot = chaptersAt(data.commits, commitId);
       for (const [chapterId, chapter] of Object.entries(snapshot)) {
         if (!data.chapters.some((c) => c.id === chapterId)) continue;
