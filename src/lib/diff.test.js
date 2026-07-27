@@ -113,8 +113,28 @@ describe('diffParagraphs', () => {
 
   it('順序の入れ替えは削除と追加として出る', () => {
     const hunks = diffParagraphs(['あ', 'い'], ['い', 'あ']);
-    expect(hunks.map((h) => h.type)).toContain('equal');
-    expect(hunks).not.toHaveLength(0);
+    expect(hunks.map((h) => h.type)).toEqual(['remove', 'equal', 'add']);
+  });
+
+  it('助詞ひとつを直した短い段落も change になる', () => {
+    expect(diffParagraphs(['空が青い'], ['空は青い']).map((h) => h.type)).toEqual(['change']);
+    expect(diffParagraphs(['はい。'], ['はい！']).map((h) => h.type)).toEqual(['change']);
+    expect(diffParagraphs(['振り向く'], ['振り返る']).map((h) => h.type)).toEqual(['change']);
+  });
+
+  it('長くてもほぼ同じ段落は change になる', () => {
+    const a = 'あ'.repeat(1500) + 'い' + 'う'.repeat(1500);
+    const b = 'あ'.repeat(1500) + 'え' + 'う'.repeat(1500);
+    const hunks = diffParagraphs([a], [b]);
+    expect(hunks.map((h) => h.type)).toEqual(['change']);
+    expect(hunks[0].inline.map((p) => p.type)).toEqual(['equal', 'remove', 'add', 'equal']);
+  });
+
+  it('高コストな段落があっても、後続の安い段落の判定を巻き添えにしない', () => {
+    const heavy = 'か'.repeat(3000);
+    const heavyB = 'き'.repeat(3000);
+    const hunks = diffParagraphs([heavy, '風が冷たい'], [heavyB, '雨が冷たい']);
+    expect(hunks.map((h) => h.type)).toEqual(['remove', 'add', 'change']);
   });
 
   it('片方が空なら全て追加', () => {
@@ -160,6 +180,16 @@ describe('性能', () => {
       { type: 'remove', value: a.slice(1) },
       { type: 'add', value: b.slice(1) },
     ]);
+  });
+
+  it('先頭も末尾も直された長い原稿でも、段落側の表が膨らまない', () => {
+    const a = Array.from({ length: 5000 }, (_, i) => `あ${i}`);
+    const b = Array.from({ length: 5000 }, (_, i) => `い${i}`);
+    const start = performance.now();
+    const hunks = diffParagraphs(a, b);
+    expect(performance.now() - start).toBeLessThan(100);
+    expect(hunks.filter((h) => h.type === 'remove')).toHaveLength(5000);
+    expect(hunks.filter((h) => h.type === 'add')).toHaveLength(5000);
   });
 
   it('5000段落の章でも200ミリ秒以内に終わる', () => {
