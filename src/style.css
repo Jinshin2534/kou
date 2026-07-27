@@ -11,3 +11,53 @@ body {
   color: var(--fgColor-default);
   font-family: system-ui, sans-serif;
 }
+
+:root {
+  --kou-font-mincho: 'Hiragino Mincho ProN', 'Yu Mincho', 'Noto Serif JP', serif;
+  --kou-font-gothic: 'Hiragino Sans', 'Yu Gothic', 'Noto Sans JP', sans-serif;
+  --kou-font-mono: 'SFMono-Regular', 'Consolas', monospace;
+  --kou-editor-font: var(--kou-font-mincho);
+  --kou-editor-size: 16px;
+  --kou-editor-line: 2;
+  --kou-editor-spacing: 0.05em;
+}
+
+.write {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+}
+
+.write__header,
+.write__footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 20px;
+  font-size: 12px;
+  color: var(--fgColor-muted);
+  font-family: var(--kou-font-gothic);
+}
+
+.write__meta {
+  display: flex;
+  gap: 16px;
+}
+
+.write__editor {
+  flex: 1;
+  writing-mode: vertical-rl;
+  border: 0;
+  outline: none;
+  resize: none;
+  background: transparent;
+  color: var(--fgColor-default);
+  font-family: var(--kou-editor-font);
+  font-size: var(--kou-editor-size);
+  line-height: var(--kou-editor-line);
+  letter-spacing: var(--kou-editor-spacing);
+  padding: 8px 40px 40px;
+  box-sizing: border-box;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
