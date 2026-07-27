@@ -88,8 +88,14 @@ export function renderWrite({ state, data, actions }) {
   });
 
   editor.addEventListener('scroll', () => { ghost.scrollLeft = editor.scrollLeft; });
+  // keydown はキーリピート中も飛ぶ。select はドラッグ選択がエディタの外で終わっても飛ぶ。
+  // この 2 つが無いと、矢印キー長押しとドラッグ選択で強調が置いていかれる。
+  editor.addEventListener('keydown', paintFocus);
   editor.addEventListener('keyup', paintFocus);
+  editor.addEventListener('select', paintFocus);
   editor.addEventListener('click', paintFocus);
+  editor.addEventListener('focus', paintFocus);
+  paintFocus();
 
   if (state.typewriter) {
     editor.addEventListener('keyup', () => scrollCaretToCenter(editor));
@@ -103,6 +109,8 @@ export function renderWrite({ state, data, actions }) {
 
   root.tabIndex = -1;
   root.addEventListener('keydown', (e) => {
+    // 変換中の Esc は「変換の取り消し」であって、UI を消す操作ではない。
+    if (e.isComposing) return;
     if (e.key === 'Escape') {
       root.classList.toggle('write--bare');
     }
