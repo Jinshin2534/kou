@@ -70,7 +70,9 @@ export function renderCompare({ state, data, actions }) {
     state.compare.source === 'commits'
       ? '選んだ内容を新しい異稿にする'
       : `選んだ内容を「${right.name}」に取り込む`;
+  apply.disabled = changed === 0;
   apply.addEventListener('click', () => {
+    apply.disabled = true; // 二度押しで異稿が二重にできるのを防ぐ
     const merged = mergeParagraphs(hunks, state.compare.choices);
     actions.applyMerge(joinParagraphs(merged));
   });

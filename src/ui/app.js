@@ -150,6 +150,7 @@ export function createApp(store) {
       render();
     },
     async applyMerge(text) {
+      await flushSave();
       if (state.compare.source === 'commits') {
         const draft = await store.createDraft(state.workId, state.chapterId, {
           name: `マージ ${new Date().toLocaleString('ja-JP')}`,
@@ -157,8 +158,18 @@ export function createApp(store) {
         });
         state.draftId = draft.id;
       } else {
-        await store.updateDraft(state.workId, state.compare.rightId, { text });
-        state.draftId = state.compare.rightId;
+        const target = state.compare.rightId;
+        if (!target) return;
+        const current = data.drafts.find((d) => d.id === target);
+        // 上書きする前の本文を異稿として残す。取り込みを取り消せる操作にしておく。
+        if (current && current.text !== text) {
+          await store.createDraft(state.workId, state.chapterId, {
+            name: `取り込み前 ${new Date().toLocaleString('ja-JP')}`,
+            text: current.text,
+          });
+        }
+        await store.updateDraft(state.workId, target, { text });
+        state.draftId = target;
       }
       state.screen = 'write';
       await reload();

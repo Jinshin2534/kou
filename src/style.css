@@ -321,6 +321,23 @@ body {
   color: var(--fgColor-accent);
 }
 
+.compare__back {
+  background: var(--bgColor-default);
+  border: 1px solid var(--borderColor-default);
+  border-radius: 6px;
+  color: var(--fgColor-muted);
+  font: inherit;
+  font-size: 11px;
+  padding: 3px 10px;
+  cursor: pointer;
+}
+
+.compare__apply:disabled {
+  background: var(--bgColor-neutral-muted);
+  color: var(--fgColor-muted);
+  cursor: default;
+}
+
 .compare__apply {
   margin-top: 16px;
   width: 100%;
