@@ -84,7 +84,27 @@ describe('diffParagraphs', () => {
 
   it('似ていない段落はペアにせず、削除と追加に分ける', () => {
     const hunks = diffParagraphs(['あ', 'い', 'う'], ['ア']);
-    expect(hunks.map((h) => h.type)).toEqual(['remove', 'remove', 'remove', 'add']);
+    expect(hunks.map((h) => h.type)).toEqual(['remove', 'add', 'remove', 'remove']);
+  });
+
+  it('短い台詞を膨らませた書き換えは change になる', () => {
+    const hunks = diffParagraphs(['行こう。'], ['やっぱりやめようかと迷ったが、それでも行こう。']);
+    expect(hunks.map((h) => h.type)).toEqual(['change']);
+  });
+
+  it('似ている段落と似ていない段落が混ざっても前後が入れ替わらない', () => {
+    const a = ['一行目', '二行目', '三行目'];
+    const b = ['一行目を直した', 'まったく別の文', '三行目を直した'];
+    const hunks = diffParagraphs(a, b);
+    expect(hunks.map((h) => h.type)).toEqual(['change', 'remove', 'add', 'change']);
+  });
+
+  it('ハンクを順に並べると元の段落列が復元できる', () => {
+    const a = ['共通', '一行目', '二行目', '三行目', '末尾'];
+    const b = ['共通', '一行目を直した', 'まったく別の文', '三行目を直した', '末尾'];
+    const hunks = diffParagraphs(a, b);
+    expect(hunks.filter((h) => h.type !== 'add').map((h) => h.a)).toEqual(a);
+    expect(hunks.filter((h) => h.type !== 'remove').map((h) => h.b)).toEqual(b);
   });
 
   it('全て削除しても remove として出る', () => {
@@ -124,20 +144,31 @@ describe('性能', () => {
     ]);
   });
 
-  it('長い段落を全面書き換えしても、段落まるごとの置換として返る', () => {
-    const a = 'あ'.repeat(5000);
-    const b = 'い'.repeat(5000);
+  it('20000字の段落を1文字だけ変えた比較も100ミリ秒以内に終わる', () => {
+    const a = 'あ'.repeat(10000) + 'い' + 'う'.repeat(10000);
+    const b = 'あ'.repeat(10000) + 'え' + 'う'.repeat(10000);
+    const start = performance.now();
+    diffChars(a, b);
+    expect(performance.now() - start).toBeLessThan(100);
+  });
+
+  it('細切れに違う長い段落は、丸ごとの置換に切り替わる', () => {
+    const a = 'あい'.repeat(2500);
+    const b = 'あう'.repeat(2500);
     expect(diffChars(a, b)).toEqual([
-      { type: 'remove', value: a },
-      { type: 'add', value: b },
+      { type: 'equal', value: 'あ' },
+      { type: 'remove', value: a.slice(1) },
+      { type: 'add', value: b.slice(1) },
     ]);
   });
 
-  it('1000段落・各200字の比較が2秒以内に終わる', () => {
-    const a = Array.from({ length: 1000 }, (_, i) => `段落${i}` + 'あ'.repeat(200));
-    const b = a.map((p, i) => (i % 10 === 0 ? p.replace('あ', 'い') : p));
+  it('5000段落の章でも200ミリ秒以内に終わる', () => {
+    const a = Array.from({ length: 5000 }, (_, i) => `段落${i}` + 'あ'.repeat(200));
+    const b = [...a];
+    b[2500] = b[2500].replace('あ', 'い');
     const start = performance.now();
-    diffParagraphs(a, b);
-    expect(performance.now() - start).toBeLessThan(2000);
+    const hunks = diffParagraphs(a, b);
+    expect(performance.now() - start).toBeLessThan(200);
+    expect(hunks.filter((h) => h.type !== 'equal').map((h) => h.type)).toEqual(['change']);
   });
 });
