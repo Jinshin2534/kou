@@ -432,6 +432,85 @@ body {
   margin-top: 24px;
 }
 
+/*
+ * data-theme はここでの独自属性で、Primer の data-color-mode / data-light-theme /
+ * data-dark-theme（index.html の <html> 上にあり、Primer の light.css / dark.css が
+ * 参照する）とは別物。特に system の prefers-color-scheme: dark 下では、Primer の
+ * dark.css が [data-color-mode][data-color-mode="auto"][data-dark-theme="dark"]
+ * （属性セレクタ3つ = 詳細度 0-3-0）で --bgColor-default 等を上書きしてくる。
+ * 単純な :root[data-theme='sepia']（疑似クラス+属性1つ = 0-2-0）だとそれより詳細度が
+ * 低く、ダークモード端末ではセピアが黒に負けて無効化される。属性セレクタをもう1つ足して
+ * 0-3-0 に揃え、ソース順で後勝ちにして確実に上書きする。
+ */
+:root[data-color-mode][data-theme='sepia'] {
+  --bgColor-default: #f4ecd8;
+  --bgColor-inset: #eee3c8;
+  --fgColor-default: #3b3228;
+  --fgColor-muted: #8b7c66;
+}
+
+.settings {
+  font-family: var(--kou-font-gothic);
+  max-width: 560px;
+  margin: 0 auto;
+  padding: 24px;
+  font-size: 13px;
+}
+
+.settings__field {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--borderColor-muted);
+}
+
+.settings__label {
+  width: 200px;
+  color: var(--fgColor-muted);
+}
+
+.settings__choice {
+  display: flex;
+  gap: 6px;
+}
+
+.settings__choice button,
+.settings > button {
+  background: var(--bgColor-default);
+  border: 1px solid var(--borderColor-default);
+  border-radius: 6px;
+  color: var(--fgColor-muted);
+  font: inherit;
+  font-size: 11px;
+  padding: 3px 10px;
+  cursor: pointer;
+}
+
+.settings__choice button.is-current {
+  border-color: var(--borderColor-accent-emphasis);
+  color: var(--fgColor-accent);
+}
+
+.settings__value {
+  width: 48px;
+  color: var(--fgColor-muted);
+}
+
+.settings__preview {
+  margin-top: 24px;
+  height: 220px;
+  writing-mode: vertical-rl;
+  font-family: var(--kou-editor-font);
+  font-size: var(--kou-editor-size);
+  line-height: var(--kou-editor-line);
+  letter-spacing: var(--kou-editor-spacing);
+  border: 1px solid var(--borderColor-default);
+  border-radius: 8px;
+  padding: 12px;
+  overflow: hidden;
+}
+
 .write__version {
   background: var(--bgColor-default);
   border: 1px solid var(--borderColor-default);

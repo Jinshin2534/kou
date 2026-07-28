@@ -66,6 +66,12 @@ export function renderWrite({ state, data, actions }) {
   toggle.addEventListener('click', () => root.classList.toggle('write--panel'));
   header.prepend(toggle);
 
+  const settingsButton = document.createElement('button');
+  settingsButton.className = 'write__toggle';
+  settingsButton.textContent = '設定';
+  settingsButton.addEventListener('click', () => actions.setScreen('settings'));
+  header.prepend(settingsButton);
+
   const compareButton = document.createElement('button');
   compareButton.className = 'write__toggle';
   compareButton.textContent = '比較';
@@ -158,7 +164,8 @@ export function renderWrite({ state, data, actions }) {
 
   function updateMeta() {
     const text = editor.value;
-    countSpan.textContent = `${countChars(text).toLocaleString()}字 ／ ${countManuscriptPages(text)}枚`;
+    const charsPerLine = data.work.settings.charsPerLine;
+    countSpan.textContent = `${countChars(text).toLocaleString()}字 ／ ${countManuscriptPages(text, { charsPerLine })}枚`;
   }
 
   function paintSaveState() {

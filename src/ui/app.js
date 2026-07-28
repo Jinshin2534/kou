@@ -1,9 +1,15 @@
 import { renderWrite } from './write.js';
 import { renderCompare } from './compare.js';
 import { renderHistory } from './history-view.js';
+import { renderSettings, applySettings } from './settings.js';
 import { chaptersAt } from '../lib/history.js';
 
-const SCREENS = { write: renderWrite, compare: renderCompare, history: renderHistory };
+const SCREENS = {
+  write: renderWrite,
+  compare: renderCompare,
+  history: renderHistory,
+  settings: renderSettings,
+};
 const SAVE_DELAY = 600;
 
 export function createApp(store) {
@@ -41,6 +47,7 @@ export function createApp(store) {
       state.draftId = chapter?.primaryDraftId ?? data.drafts[0]?.id ?? null;
     }
     data.commits = await store.listCommits(state.workId);
+    if (data.work) applySettings(data.work.settings);
   }
 
   // data.commits は store から返ってきた挿入順(=作成順)のまま保持される。createdAt は
@@ -331,6 +338,13 @@ export function createApp(store) {
       });
       await actions.switchVersion(version.id);
       return version;
+    },
+    async updateSettings(patch) {
+      await flushSave();
+      const settings = { ...data.work.settings, ...patch };
+      await store.updateWork(state.workId, { settings });
+      await reload();
+      render();
     },
     async restore(commitId) {
       await flushSave();
