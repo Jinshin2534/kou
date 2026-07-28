@@ -66,6 +66,12 @@ export function renderWrite({ state, data, actions }) {
   toggle.addEventListener('click', () => root.classList.toggle('write--panel'));
   header.prepend(toggle);
 
+  const shelfButton = document.createElement('button');
+  shelfButton.className = 'write__toggle';
+  shelfButton.textContent = '書架';
+  shelfButton.addEventListener('click', () => actions.setScreen('shelf'));
+  header.prepend(shelfButton);
+
   const settingsButton = document.createElement('button');
   settingsButton.className = 'write__toggle';
   settingsButton.textContent = '設定';

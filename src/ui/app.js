@@ -2,9 +2,11 @@ import { renderWrite } from './write.js';
 import { renderCompare } from './compare.js';
 import { renderHistory } from './history-view.js';
 import { renderSettings, applySettings } from './settings.js';
+import { renderShelf } from './shelf.js';
 import { chaptersAt } from '../lib/history.js';
 
 const SCREENS = {
+  shelf: renderShelf,
   write: renderWrite,
   compare: renderCompare,
   history: renderHistory,
@@ -29,9 +31,10 @@ export function createApp(store) {
   };
 
   let root = null;
-  let data = { work: null, versions: [], chapters: [], drafts: [], commits: [] };
+  let data = { works: [], work: null, versions: [], chapters: [], drafts: [], commits: [] };
 
   async function reload() {
+    data.works = await store.listWorks();
     if (!state.workId) return;
     data.work = await store.getWork(state.workId);
     data.versions = await store.listVersions(state.workId);
@@ -64,7 +67,8 @@ export function createApp(store) {
   function render() {
     if (!root) return;
     saveListeners = [];
-    root.replaceChildren(SCREENS[state.screen]({ state, data, actions }));
+    const screen = state.workId ? state.screen : 'shelf';
+    root.replaceChildren(SCREENS[screen]({ state, data, actions }));
   }
 
   function notifySaveState() {
@@ -101,6 +105,80 @@ export function createApp(store) {
   }
 
   const actions = {
+    async newWork(title) {
+      await flushSave();
+      const work = await store.createWork(title);
+      await actions.openWork(work.id);
+      state.screen = 'write';
+      render();
+    },
+    async removeWork(workId) {
+      await flushSave();
+      await store.deleteWork(workId);
+      if (state.workId === workId) {
+        state.workId = null;
+        state.versionId = null;
+        state.chapterId = null;
+        state.draftId = null;
+      }
+      await reload();
+      render();
+    },
+    async exportAll() {
+      const dumped = await store.dump();
+      const blob = new Blob([JSON.stringify(dumped, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `kou-${new Date().toISOString().slice(0, 10)}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+    },
+    async importAll(file) {
+      await flushSave();
+      const text = await file.text();
+      await store.load(JSON.parse(text));
+      state.workId = null;
+      state.versionId = null;
+      state.chapterId = null;
+      state.draftId = null;
+      state.screen = 'shelf';
+      await reload();
+      render();
+    },
+    download(filename, content, type = 'text/plain') {
+      const blob = new Blob([content], { type });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      a.click();
+      URL.revokeObjectURL(url);
+    },
+    async exportChaptersMarkdown() {
+      // 書架は作品が一つも無いときにも表示されるため、開いている作品が無ければ何もしない。
+      if (!state.workId || !data.work) return;
+      const parts = [];
+      for (const chapter of data.chapters) {
+        const drafts = await store.listDrafts(state.workId, chapter.id);
+        const primary = drafts.find((d) => d.id === chapter.primaryDraftId);
+        parts.push(`# ${chapter.title}\n\n${primary ? primary.text : ''}`);
+      }
+      actions.download(`${data.work.title}.md`, parts.join('\n\n'), 'text/markdown');
+    },
+    async importChapterMarkdown(file) {
+      await flushSave();
+      const raw = (await file.text()).replace(/\r\n/g, '\n');
+      const lines = raw.split('\n');
+      const title = lines[0].startsWith('# ') ? lines[0].slice(2).trim() : file.name.replace(/\.md$/, '');
+      const body = (lines[0].startsWith('# ') ? lines.slice(1) : lines).join('\n').replace(/^\n+/, '');
+      const chapter = await store.createChapter(state.workId, state.versionId, title);
+      await store.updateDraft(state.workId, chapter.primaryDraftId, { text: body });
+      state.chapterId = chapter.id;
+      state.draftId = null;
+      await reload();
+      render();
+    },
     async openWork(workId) {
       await flushSave();
       state.workId = workId;
@@ -370,8 +448,13 @@ export function createApp(store) {
     async mount(el) {
       root = el;
       const works = await store.listWorks();
-      const work = works[0] ?? (await store.createWork('無題'));
-      await actions.openWork(work.id);
+      if (works.length === 0) {
+        state.screen = 'shelf';
+        await reload();
+        render();
+        return;
+      }
+      await actions.openWork(works[0].id);
     },
   };
 }

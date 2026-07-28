@@ -62,6 +62,19 @@ export function renderChapters({ state, data, actions }) {
     if (title) actions.addChapter(title);
   });
 
-  panel.append(list, add);
+  const importMd = document.createElement('label');
+  importMd.className = 'chapters__add';
+  importMd.textContent = '.md を章として読み込む';
+  const importMdInput = document.createElement('input');
+  importMdInput.type = 'file';
+  importMdInput.accept = '.md,text/markdown';
+  importMdInput.style.display = 'none';
+  importMdInput.addEventListener('change', () => {
+    const file = importMdInput.files[0];
+    if (file) actions.importChapterMarkdown(file);
+  });
+  importMd.append(importMdInput);
+
+  panel.append(list, add, importMd);
   return panel;
 }
