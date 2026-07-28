@@ -35,15 +35,15 @@ export function createApp(store) {
   let saveTimer = null;
   let pending = null;
   let destroyed = false;
-  // 書き込みの発行順に単調増加する連番。updateDraft の Promise は
-  // Firestore ではサーバー確認が返るまで解決しない（オフラインでは解決しない）ため、
-  // 呼び出し順に解決するとは限らない。古い書き込みが後から解決しても
+  // 書き込みの発行順に単調増加する連番。updateDraft の Promise はリモートストアでは
+  // サーバー確認が返るまで解決しない（ネットワークが遅い・切れている間は解決しない）
+  // ため、呼び出し順に解決するとは限らない。古い書き込みが後から解決しても
   // state.saveState / data.drafts を巻き戻さないよう、この連番で
   // 「自分が最後に発行した書き込みか」を判定する。
   let writeSeq = 0;
   // 異稿ごとに「このセッションで一度、競合チェック（リモート読み取り）をやったか」を
   // 覚えておく。打鍵のたびの自動保存すべてでリモートを読みに行くと、キー入力のたびに
-  // Firestore へ読み取りが飛んで自動保存のたびに待たされる（オンライン時）。同じ異稿を
+  // リモートへ読み取りが飛んで自動保存のたびに待たされる（オンライン時）。同じ異稿を
   // 開いたまま書き続ける限り、直前の書き込みが自分自身の履歴になるので毎回確かめる意味が
   // 薄い。reload() で異稿一覧を読み直すたび（章・異稿の切り替えなど）にリセットし、
   // 「この異稿を開いてから最初の保存」でだけ確かめる。
@@ -178,7 +178,7 @@ export function createApp(store) {
     data.compareVersions = { leftId, rightId, leftChapters, rightChapters };
   }
 
-  // data.commits の並び順は store の実装(local=挿入順 / firestore=createdAt順)に
+  // data.commits の並び順は store の実装(local=挿入順 / supabase=createdAt順)に
   // よって変わりうるので、それに頼らず構造的に HEAD を決める: この版のコミットのうち
   // 誰の parentId にもなっていないものが HEAD。
   function headCommitId() {
@@ -230,16 +230,16 @@ export function createApp(store) {
   // 前の章の本文が今の章に書き込まれることがないようにする。
   //
   // store.updateDraft の Promise は決して await/control-flow のために使わない
-  // （updateDoc はサーバー確認が返るまで解決せず、オフラインでは解決しない —
-  // 直列に await すると最初のオフライン書き込みで永遠に詰まり、以降の入力は
-  // 揮発性の JS 変数の中に留まったままタブを閉じると消える）。
+  // （リモートストアの書き込みはサーバー確認が返るまで解決せず、オフラインでは
+  // 解決しない — 直列に await すると最初のオフライン書き込みで永遠に詰まり、以降の
+  // 入力は揮発性の JS 変数の中に留まったままタブを閉じると消える）。
   // 書き込みは発行した瞬間に data.drafts を同期的に書き換えてしまい、
   // store への反映は完全に投げっぱなしにする。
   // 競合チェック（リモートを読んで、他端末が先に書いていないか確かめる）をしてから
-  // 実際の書き込みを投げる。read は Firestore のローカルキャッシュから返るのでオフラインでも
-  // すぐ解決する（サーバー確認を待つ write とは違う）ため、await してもここが詰まることはない。
-  // この関数自体を await する側は無い（fire-and-forget）ので、conflictCheck に多少
-  // 時間がかかっても flushSave() / 呼び出し元をブロックしない。
+  // 実際の書き込みを投げる。この関数自体を await する側は無い（fire-and-forget）ので、
+  // conflictCheck に多少時間がかかっても flushSave() / 呼び出し元をブロックしない
+  // （Supabase にはオフラインキャッシュが無いため、オフライン時は conflictCheck 自体が
+  // 解決しないままになりうるが、それでも呼び出し元はブロックされない）。
   // I2: 退避スロットは以前 1 件しか持てなかった（unconditional setItem）ため、2 回目の
   // 失敗が 1 回目の退避を消してしまっていた。draftId をキーにした配列にして、
   // 複数の異稿・複数の失敗をそれぞれ保持する。

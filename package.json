@@ -20,6 +20,6 @@
   },
   "dependencies": {
     "@primer/primitives": "^11.9.0",
-    "firebase": "^12.16.0"
+    "@supabase/supabase-js": "^2.111.0"
   }
 }

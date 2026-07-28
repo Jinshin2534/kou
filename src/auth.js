@@ -1,34 +1,20 @@
-import { initializeApp } from 'firebase/app';
-import {
-  getAuth,
-  GoogleAuthProvider,
-  signInWithPopup,
-  signOut as fbSignOut,
-  onAuthStateChanged,
-} from 'firebase/auth';
-import { initializeFirestore, persistentLocalCache } from 'firebase/firestore';
+import { createClient } from '@supabase/supabase-js';
 
-const config = {
-  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
-  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
-  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
-  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
-  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
-  appId: import.meta.env.VITE_FIREBASE_APP_ID,
-};
+const url = import.meta.env.VITE_SUPABASE_URL;
+const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
-export const hasFirebaseConfig = Boolean(config.apiKey && config.projectId);
+export const hasSupabaseConfig = Boolean(url && anonKey);
 
-export function initFirebase() {
-  if (!hasFirebaseConfig) return null;
-  const app = initializeApp(config);
-  const db = initializeFirestore(app, { localCache: persistentLocalCache() });
-  const auth = getAuth(app);
+// Google OAuth のようなコンソール操作（クライアント作成・同意画面設定）を避けるため、
+// マジックリンクのメールログインだけを使う。
+export function initSupabase() {
+  if (!hasSupabaseConfig) return null;
+  const client = createClient(url, anonKey);
   return {
-    db,
-    auth,
-    signIn: () => signInWithPopup(auth, new GoogleAuthProvider()),
-    signOut: () => fbSignOut(auth),
-    onChange: (fn) => onAuthStateChanged(auth, fn),
+    client,
+    signIn: (email) => client.auth.signInWithOtp({ email }),
+    signOut: () => client.auth.signOut(),
+    onChange: (fn) =>
+      client.auth.onAuthStateChange((_event, session) => fn(session ? session.user : null)),
   };
 }

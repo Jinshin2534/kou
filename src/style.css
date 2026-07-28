@@ -686,6 +686,32 @@ label.chapters__add {
   cursor: pointer;
 }
 
+.login button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.login form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.login input {
+  background: var(--bgColor-default);
+  border: 1px solid var(--borderColor-default);
+  border-radius: 6px;
+  color: var(--fgColor-default);
+  font: inherit;
+  font-size: 13px;
+  padding: 8px 10px;
+}
+
+.login__status {
+  min-height: 1em;
+}
+
 .write__online {
   color: var(--fgColor-attention);
 }

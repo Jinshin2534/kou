@@ -1,7 +1,7 @@
-// local / firestore の両実装、および新規作品作成時の既定値。ここに置くのは、
-// local.js だけの持ち物にすると firestore.js がストレージ実装から設定の既定値を
+// local / supabase の両実装、および新規作品作成時の既定値。ここに置くのは、
+// local.js だけの持ち物にすると supabase.js がストレージ実装から設定の既定値を
 // 拝借する形になってしまうため（本来は無関係なはず）。index.js からも参照するが、
-// index.js は local.js / firestore.js を import するため、そちら側に置くと
+// index.js は local.js / supabase.js を import するため、そちら側に置くと
 // 循環importになる。
 export const DEFAULT_SETTINGS = {
   orientation: 'vertical',

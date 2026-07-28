@@ -3,3 +3,6 @@ dist
 .DS_Store
 .env
 .env.local
+.vercel
+.supabase-db-password
+supabase/.temp

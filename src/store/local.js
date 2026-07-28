@@ -1,7 +1,7 @@
 import { DEFAULT_SETTINGS } from './defaults.js';
 
-// main.js が「Firestore へ初回ログインした際、このキーの下にローカル原稿が残っていないか」
-// を確かめるために export する（I4: Firebase を有効にした瞬間に既存原稿が書架から
+// main.js が「Supabase へ初回ログインした際、このキーの下にローカル原稿が残っていないか」
+// を確かめるために export する（I4: Supabase を有効にした瞬間に既存原稿が書架から
 // 見えなくなる問題への対処。取り込みを申し出るだけで、このキー自体は削除しない）。
 export const LOCAL_DB_KEY = 'kou:db';
 const KEY = LOCAL_DB_KEY;

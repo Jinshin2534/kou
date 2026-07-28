@@ -25,13 +25,14 @@ pnpm test     # vitest run（91 テスト）
 
 ## 保存先とデータの持ち出し方
 
-`.env.local`（または `VITE_FIREBASE_*` 環境変数）が **無い状態が既定** で、その場合アプリは
+`.env.local`（または `VITE_SUPABASE_*` 環境変数）が **無い状態が既定** で、その場合アプリは
 localStorage だけで完結して動く。ログイン画面も出ない。これは「機能が足りない状態」ではなく、
 サポートされた通常運転のモード。
 
-Firebase の設定値を入れると Google ログイン画面が出るようになり、Firestore
-（`users/{uid}/...` 配下）への同期が有効になる。手順は [`docs/firebase-setup.md`](docs/firebase-setup.md) を参照。
-`.env.example` をコピーして `.env.local` を作る。
+Supabase の設定値を入れるとメールアドレスでのマジックリンクログイン画面が出るようになり、
+Supabase（Postgres、行単位のセキュリティで自分の行しか読み書きできない）への同期が有効になる。
+手順は [`docs/supabase-setup.md`](docs/supabase-setup.md) を参照。`.env.example` をコピーして
+`.env.local` を作る。
 
 保存先がどちらであっても、原稿を取り出す手段は常に用意されている（このアプリの目的が
 「原稿を必ず回収できること」であるため）。書架画面から：
@@ -58,30 +59,27 @@ Firebase の設定値を入れると Google ログイン画面が出るように
 - `src/lib/` — 純粋関数のみ。DOM にも store にも触れない。差分・マージ・履歴グラフ構築・文字数計算などの
   ロジックはすべてここに置き、Vitest でテストする。
 - `src/store/` — 差し替え可能な永続化層。`src/store/local.js`（localStorage）と
-  `src/store/firestore.js`（Firestore）の 2 実装があり、`src/store/index.js` が
-  Firebase の有無で自動的に切り替える。**この 2 実装は同じインターフェースに対して
+  `src/store/supabase.js`（Supabase）の 2 実装があり、`src/store/index.js` が
+  Supabase の設定有無で自動的に切り替える。**この 2 実装は同じインターフェースに対して
   同じ挙動をしなければならない**（順序、フィルタ条件、置き換え/合体のセマンティクスまで含めて）。
-  片方だけ直して挙動がずれると、Firebase ありなしでアプリの動作が変わってしまう。
+  片方だけ直して挙動がずれると、Supabase ありなしでアプリの動作が変わってしまう。
 - `src/ui/` — DOM 操作。`src/lib` の関数と `store` の呼び出しを組み合わせて画面を作る。
 
 ## 既知の制限
 
-- `src/store/firestore.js` は実装されているが、**実在の Firebase プロジェクトに対して
-  実際に動かしたことは一度もない**（Firebase 側のプロジェクト作成・ルール設定はオーナー作業のため）。
-  設定して最初に使うときは、書き出し（JSON）で控えを取ってから試すこと。
 - `createChapter` の並び順（`order`）は「今ある章を数えて次の番号を振る」方式で、
   読み取りと書き込みの間がトランザクションで保護されていない。同時に章を追加する操作が重なると
   順序が乱れうる。
 - 複数端末から同じ版に同時にコミットすると、コミット履歴が分岐（フォーク）しうる。
   HEAD は「誰の親でもないコミット」として構造的に判定しているため壊れはしないが、
   自動マージはされない。
-- Firestore 側の一括書き込み（版分岐・作品削除・JSON 読み込みなど）は 1 バッチ 500 件の上限を
-  超えると複数バッチに分割して送る。分割された時点で全体としては不可分ではなく、
-  途中のバッチで失敗すると一部だけ適用された状態が残りうる。
+- `src/store/supabase.js` の版分岐（`createVersion`）・作品削除（`deleteWork`）・
+  JSON 読み込み（`load`）は複数の insert/delete を順番に投げるだけで、単一トランザクションに
+  包んでいない。途中で失敗すると一部だけ適用された状態が残りうる。
 - 縦書き編集の IME 変換中の挙動・範囲選択・入力の速さは実地でまだ検証していない
   （詳細は [`docs/vertical-spike.md`](docs/vertical-spike.md)）。問題が出た場合の撤退先も
   そこに書いてある。
 
-## Firebase
+## Supabase
 
-詳しいセットアップ手順とセキュリティルールは [`docs/firebase-setup.md`](docs/firebase-setup.md) を参照。
+詳しいセットアップ手順とスキーマは [`docs/supabase-setup.md`](docs/supabase-setup.md) を参照。
