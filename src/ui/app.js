@@ -715,13 +715,20 @@ export function createApp(store) {
       render();
     },
     async moveChapter(chapterId, delta) {
-      await flushSave();
       const ids = data.chapters.map((c) => c.id);
       const from = ids.indexOf(chapterId);
       const to = from + delta;
       if (from < 0 || to < 0 || to >= ids.length) return;
       ids.splice(to, 0, ids.splice(from, 1)[0]);
-      await store.reorderChapters(state.workId, ids);
+      await actions.reorderChapters(ids);
+    },
+    // ドラッグ＆ドロップによる並べ替え用。moveChapter と違い、呼び出し元（chapters.js）が
+    // 並べ替え後の完全な順序（全章の id 配列）を組み立てて渡す。store.reorderChapters は
+    // 渡されなかった章を末尾に押しやって order を振り直してしまうので、部分的なリストに
+    // 頼らずここで必ず全件を渡す。
+    async reorderChapters(orderedIds) {
+      await flushSave();
+      await store.reorderChapters(state.workId, orderedIds);
       await reload();
       render();
     },

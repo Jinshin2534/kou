@@ -170,6 +170,33 @@ body {
   color: var(--fgColor-accent);
 }
 
+.chapters__item.is-dragging {
+  opacity: 0.5;
+}
+
+.chapters__item.is-drop-before {
+  box-shadow: inset 0 2px 0 0 var(--borderColor-accent-emphasis);
+}
+
+.chapters__item.is-drop-after {
+  box-shadow: inset 0 -2px 0 0 var(--borderColor-accent-emphasis);
+}
+
+.chapters__header {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.chapters__handle {
+  cursor: grab;
+  color: var(--fgColor-muted);
+  font-size: 12px;
+  line-height: 1;
+  user-select: none;
+  touch-action: none;
+}
+
 .chapters__title {
   background: none;
   border: 0;

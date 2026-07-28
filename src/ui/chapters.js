@@ -5,9 +5,65 @@ export function renderChapters({ state, data, actions }) {
   const list = document.createElement('ul');
   list.className = 'chapters__list';
 
+  // ドラッグ中の章 id。renderChapters はレンダーのたびに毎回新しく呼ばれ、この変数も
+  // そのたびに作り直される（DOM 要素も全部作り直す）ので、前回の render をまたいで
+  // 値が残ることはない。
+  let draggedId = null;
+
+  function clearDropIndicators() {
+    for (const node of list.children) {
+      node.classList.remove('is-drop-before', 'is-drop-after');
+    }
+  }
+
   for (const chapter of data.chapters) {
     const li = document.createElement('li');
     li.className = 'chapters__item' + (chapter.id === state.chapterId ? ' is-current' : '');
+
+    const handle = document.createElement('span');
+    handle.className = 'chapters__handle';
+    handle.textContent = '⠿';
+    handle.title = 'ドラッグして並べ替え';
+    handle.draggable = true;
+    handle.addEventListener('dragstart', (e) => {
+      draggedId = chapter.id;
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData('text/plain', chapter.id);
+      li.classList.add('is-dragging');
+    });
+    handle.addEventListener('dragend', () => {
+      draggedId = null;
+      li.classList.remove('is-dragging');
+      clearDropIndicators();
+    });
+
+    li.addEventListener('dragover', (e) => {
+      if (!draggedId || draggedId === chapter.id) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      const rect = li.getBoundingClientRect();
+      const before = e.clientY - rect.top < rect.height / 2;
+      clearDropIndicators();
+      li.classList.add(before ? 'is-drop-before' : 'is-drop-after');
+    });
+
+    li.addEventListener('drop', (e) => {
+      e.preventDefault();
+      clearDropIndicators();
+      const fromId = draggedId;
+      draggedId = null;
+      if (!fromId || fromId === chapter.id) return;
+      const rect = li.getBoundingClientRect();
+      const before = e.clientY - rect.top < rect.height / 2;
+
+      // moveChapter (↑/↓ボタン) と同じく、必ず全章分の順序リストを組み立てて渡す。
+      // store.reorderChapters は部分的なリストも渡されなかった章を末尾に押しやる形で
+      // 受け付けるが、そこに頼らずここで完全なリストを作る。
+      const ids = data.chapters.map((c) => c.id).filter((id) => id !== fromId);
+      const targetIndex = ids.indexOf(chapter.id);
+      ids.splice(before ? targetIndex : targetIndex + 1, 0, fromId);
+      actions.reorderChapters(ids);
+    });
 
     const button = document.createElement('button');
     button.className = 'chapters__title';
@@ -58,7 +114,11 @@ export function renderChapters({ state, data, actions }) {
       tools.append(b);
     }
 
-    li.append(button, summary, memo, tools);
+    const header = document.createElement('div');
+    header.className = 'chapters__header';
+    header.append(handle, button);
+
+    li.append(header, summary, memo, tools);
     list.append(li);
   }
 
