@@ -84,6 +84,12 @@ export function renderWrite({ state, data, actions }) {
   compareButton.addEventListener('click', () => actions.setScreen('compare'));
   header.prepend(compareButton);
 
+  const previewButton = document.createElement('button');
+  previewButton.className = 'write__toggle';
+  previewButton.textContent = '組見本';
+  previewButton.addEventListener('click', () => actions.setScreen('preview'));
+  header.prepend(previewButton);
+
   const historyButton = document.createElement('button');
   historyButton.className = 'write__toggle';
   historyButton.textContent = '履歴';

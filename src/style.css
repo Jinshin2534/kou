@@ -622,3 +622,77 @@ label.chapters__add {
 .write__online {
   color: var(--fgColor-attention);
 }
+
+.preview {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  box-sizing: border-box;
+}
+
+.preview__bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 20px;
+  font-size: 12px;
+  color: var(--fgColor-muted);
+  font-family: var(--kou-font-gothic);
+}
+
+.preview__bar button {
+  background: var(--bgColor-default);
+  border: 1px solid var(--borderColor-default);
+  border-radius: 6px;
+  color: var(--fgColor-muted);
+  font: inherit;
+  font-size: 11px;
+  padding: 3px 10px;
+  cursor: pointer;
+}
+
+.preview__title {
+  color: var(--fgColor-default);
+}
+
+.preview__body {
+  flex: 1;
+  min-height: 0;
+  writing-mode: vertical-rl;
+  font-family: var(--kou-editor-font);
+  font-size: var(--kou-editor-size);
+  line-height: var(--kou-editor-line);
+  letter-spacing: var(--kou-editor-spacing);
+  padding: 8px 40px 40px;
+  box-sizing: border-box;
+  overflow-x: auto;
+  overflow-y: hidden;
+  color: var(--fgColor-default);
+}
+
+.preview__line {
+  margin: 0;
+}
+
+.preview__body ruby {
+  ruby-position: over;
+}
+
+.preview__emphasis {
+  /* 縦書きでは text-emphasis-position の over/under は無視され、left/right だけが効く。
+     「右」が伝統的な傍点の位置。 */
+  -webkit-text-emphasis-position: right;
+  text-emphasis-position: right;
+  -webkit-text-emphasis: filled circle;
+  text-emphasis: filled circle;
+  text-emphasis-color: var(--fgColor-default);
+  -webkit-text-emphasis-color: var(--fgColor-default);
+}
+
+.preview__note {
+  font-family: var(--kou-font-gothic);
+  font-size: 11px;
+  color: var(--fgColor-muted);
+  padding: 8px 20px;
+  margin: 0;
+}

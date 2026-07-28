@@ -3,6 +3,7 @@ import { renderCompare } from './compare.js';
 import { renderHistory } from './history-view.js';
 import { renderSettings, applySettings } from './settings.js';
 import { renderShelf } from './shelf.js';
+import { renderPreview } from './preview.js';
 import { chaptersAt } from '../lib/history.js';
 import { detectConflict } from '../lib/conflict.js';
 import { countChars } from '../lib/counter.js';
@@ -17,6 +18,7 @@ const SCREENS = {
   compare: renderCompare,
   history: renderHistory,
   settings: renderSettings,
+  preview: renderPreview,
 };
 const SAVE_DELAY = 600;
 
