@@ -419,6 +419,46 @@ label.chapters__add {
   cursor: pointer;
 }
 
+.compare__versions {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.compare__loading {
+  color: var(--fgColor-muted);
+  font-family: var(--kou-font-gothic);
+  font-size: 13px;
+  padding: 20px 0;
+  text-align: center;
+}
+
+.compare__chapter-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding-bottom: 6px;
+  font-family: var(--kou-font-gothic);
+  font-size: 13px;
+}
+
+.compare__chapter-header--nodiff {
+  color: var(--fgColor-muted);
+}
+
+.compare__chapter-title {
+  font-weight: 600;
+}
+
+.compare__nodiff {
+  margin-left: auto;
+  color: var(--fgColor-muted);
+}
+
+.compare__chapter-apply {
+  margin-top: 8px;
+}
+
 .history__restore.is-current {
   border-color: var(--borderColor-accent-emphasis);
   color: var(--fgColor-accent);

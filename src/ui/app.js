@@ -74,7 +74,20 @@ export function createApp(store) {
   };
 
   let root = null;
-  let data = { works: [], work: null, versions: [], chapters: [], drafts: [], commits: [] };
+  let data = {
+    works: [],
+    work: null,
+    versions: [],
+    chapters: [],
+    drafts: [],
+    commits: [],
+    // 版 ↔ 版 比較（compare.source === 'versions'）専用のキャッシュ。
+    // 章・異稿は state.chapterId に紐づく現在の版のものしか data に読み込まれていないため、
+    // 比較対象の2つの版それぞれの章＋主異稿本文をここに読み込んでおく。
+    // どの2版分の内容かを leftId/rightId で覚えておき、compare.js は
+    // state.compare.leftId/rightId と一致する場合だけこれを使う（一致しなければ読み込み中扱い）。
+    compareVersions: null,
+  };
 
   // I6: 書架の各作品行に「総字数」「現在の版」を出すための集計。書架に並ぶ全作品それぞれの
   // 現在の版・各章・その本文異稿を読む必要があるため store 呼び出しが多いが、著者個人の
@@ -135,6 +148,34 @@ export function createApp(store) {
     // 復元の両方をこの一箇所でまかなう。
     state.focusMode = data.work.settings.focusMode ?? true;
     state.typewriter = data.work.settings.typewriter ?? true;
+  }
+
+  // 版 ↔ 版 比較用: 指定した版の章一覧を、各章の主異稿の本文つきで読む。
+  // 章は order で対応させる（版をまたぐと章 id は複製で変わるため）ので order も持たせる。
+  async function resolveVersionChapters(versionId) {
+    if (!versionId) return [];
+    const chapters = await store.listChapters(state.workId, versionId);
+    const result = [];
+    for (const chapter of chapters) {
+      const drafts = await store.listDrafts(state.workId, chapter.id);
+      const primary = drafts.find((d) => d.id === chapter.primaryDraftId);
+      result.push({
+        id: chapter.id,
+        order: chapter.order,
+        title: chapter.title,
+        text: primary ? primary.text : '',
+      });
+    }
+    return result;
+  }
+
+  async function loadCompareVersions() {
+    const { leftId, rightId } = state.compare;
+    const [leftChapters, rightChapters] = await Promise.all([
+      resolveVersionChapters(leftId),
+      resolveVersionChapters(rightId),
+    ]);
+    data.compareVersions = { leftId, rightId, leftChapters, rightChapters };
   }
 
   // data.commits の並び順は store の実装(local=挿入順 / firestore=createdAt順)に
@@ -554,6 +595,56 @@ export function createApp(store) {
     },
     setCompare(patch) {
       Object.assign(state.compare, patch);
+      render();
+    },
+    // 比較画面内の「異稿 / コミット / 版」切り替え。既存の setScreen('compare')（常に
+    // drafts で開く）・compareCommits（履歴画面から commits で開く）はそのままにし、
+    // 画面を出たり入ったりせずに比較の種類だけ変えられるようにする。
+    async setCompareSource(source) {
+      await flushSave();
+      if (source === state.compare.source) return;
+      if (source === 'drafts') {
+        const others = data.drafts.filter((d) => d.id !== state.draftId);
+        state.compare = {
+          source: 'drafts',
+          leftId: others[0]?.id ?? state.draftId,
+          rightId: state.draftId,
+          choices: {},
+        };
+      } else if (source === 'commits') {
+        const sorted = [...data.commits].sort((a, b) => b.createdAt - a.createdAt);
+        state.compare = {
+          source: 'commits',
+          leftId: sorted[1]?.id ?? sorted[0]?.id ?? null,
+          rightId: sorted[0]?.id ?? null,
+          choices: {},
+        };
+      } else {
+        const rightId = state.versionId ?? data.versions[0]?.id ?? null;
+        const leftId = data.versions.find((v) => v.id !== rightId)?.id ?? rightId;
+        state.compare = { source: 'versions', leftId, rightId, choices: {} };
+        await loadCompareVersions();
+      }
+      render();
+    },
+    async setCompareVersionSide(side, id) {
+      await flushSave();
+      state.compare[side === 'left' ? 'leftId' : 'rightId'] = id;
+      // ハンクの choices は配列位置なので、左右どちらを変えても対応が崩れる。
+      // 版比較では章ごとに choices[order] を持つので、丸ごとリセットして
+      // renderVersionsBody 側で章ごとに defaultChoices を作り直させる。
+      state.compare.choices = {};
+      await loadCompareVersions();
+      render();
+    },
+    // 版 ↔ 版 の「取り込む」。commits モードと同じく、既存の異稿を上書きしない。
+    // 選んだ内容を「右側の版」の対応する章に、新しい異稿として追加するだけ。
+    async applyVersionMerge(chapterId, text) {
+      await flushSave();
+      await store.createDraft(state.workId, chapterId, {
+        name: `マージ ${new Date().toLocaleString('ja-JP')}`,
+        text,
+      });
       render();
     },
     async applyMerge(text) {
