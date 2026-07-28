@@ -14,6 +14,15 @@ const SCREENS = {
 };
 const SAVE_DELAY = 600;
 
+// store.dump() が返す形の最低限の検証。稿の書き出しでない JSON（別アプリのファイル、
+// 空オブジェクト、壊れた構造など）を store.load() にそのまま渡すと、EMPTY とマージされて
+// 既存データが黙って空collectionで上書きされる。5つのcollectionが揃って配列であることだけ
+// 先に確かめ、それ以外は import 側の警告に任せる。
+function isKouDump(data) {
+  if (!data || typeof data !== 'object') return false;
+  return ['works', 'versions', 'chapters', 'drafts', 'commits'].every((key) => Array.isArray(data[key]));
+}
+
 export function createApp(store) {
   let saveTimer = null;
   let pending = null;
@@ -125,6 +134,7 @@ export function createApp(store) {
       render();
     },
     async exportAll() {
+      await flushSave();
       const dumped = await store.dump();
       const blob = new Blob([JSON.stringify(dumped, null, 2)], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
@@ -136,14 +146,35 @@ export function createApp(store) {
     },
     async importAll(file) {
       await flushSave();
-      const text = await file.text();
-      await store.load(JSON.parse(text));
+
+      let data;
+      try {
+        data = JSON.parse(await file.text());
+      } catch {
+        alert('読み込めませんでした。JSON として壊れています。今のデータはそのままです。');
+        return;
+      }
+      if (!isKouDump(data)) {
+        alert('稿の書き出しファイルではないようです。今のデータはそのままです。');
+        return;
+      }
+
+      // 置き換えに失敗したら元に戻せるよう、直前の状態を控えておく。
+      const backup = await store.dump();
       state.workId = null;
       state.versionId = null;
       state.chapterId = null;
       state.draftId = null;
       state.screen = 'shelf';
-      await reload();
+      try {
+        await store.load(data);
+        await reload();
+      } catch (error) {
+        await store.load(backup);
+        await reload();
+        console.error('読み込みに失敗しました', error);
+        alert('読み込みに失敗したため、元のデータに戻しました。');
+      }
       render();
     },
     download(filename, content, type = 'text/plain') {
@@ -158,6 +189,7 @@ export function createApp(store) {
     async exportChaptersMarkdown() {
       // 書架は作品が一つも無いときにも表示されるため、開いている作品が無ければ何もしない。
       if (!state.workId || !data.work) return;
+      await flushSave();
       const parts = [];
       for (const chapter of data.chapters) {
         const drafts = await store.listDrafts(state.workId, chapter.id);
@@ -168,7 +200,9 @@ export function createApp(store) {
     },
     async importChapterMarkdown(file) {
       await flushSave();
-      const raw = (await file.text()).replace(/\r\n/g, '\n');
+      // Windows(\r\n) と旧 Mac(\r) の改行を落とす。残ると段落末尾に見えない文字が付き、
+      // 差分と文字数が狂う。
+      const raw = (await file.text()).replace(/\r\n?/g, '\n');
       const lines = raw.split('\n');
       const title = lines[0].startsWith('# ') ? lines[0].slice(2).trim() : file.name.replace(/\.md$/, '');
       const body = (lines[0].startsWith('# ') ? lines.slice(1) : lines).join('\n').replace(/^\n+/, '');
