@@ -83,6 +83,7 @@ export function createFirestoreStore(db, uid) {
         chapterId: chapter.id,
         name: '初稿',
         text: '',
+        createdAt: now,
         updatedAt: now,
       };
       chapter.primaryDraftId = draft.id;
@@ -129,8 +130,7 @@ export function createFirestoreStore(db, uid) {
         baseCommitId,
         createdAt: now,
       };
-      const batch = writeBatch(db);
-      batch.set(ref('versions', version.id), version);
+      const operations = [(batch) => batch.set(ref('versions', version.id), version)];
 
       const chapters = (
         await all('chapters', where('workId', '==', workId), where('versionId', '==', fromVersionId))
@@ -146,13 +146,16 @@ export function createFirestoreStore(db, uid) {
           chapterId: newChapter.id,
           name: primary.name,
           text: primary.text,
+          createdAt: now,
           updatedAt: now,
         };
         newChapter.primaryDraftId = newDraft.id;
-        batch.set(ref('chapters', newChapter.id), newChapter);
-        batch.set(ref('drafts', newDraft.id), newDraft);
+        operations.push((batch) => batch.set(ref('chapters', newChapter.id), newChapter));
+        operations.push((batch) => batch.set(ref('drafts', newDraft.id), newDraft));
       }
-      await batch.commit();
+      // 章数（＝異稿の複製数）が多い作品を版分岐すると 1 バッチの 500 書き込み上限に
+      // 簡単に達するため、writeBatch を直接使わずチャンク分割する runBatched に通す。
+      await runBatched(operations);
       return version;
     },
 
@@ -181,6 +184,7 @@ export function createFirestoreStore(db, uid) {
         chapterId: chapter.id,
         name: '初稿',
         text: '',
+        createdAt: now,
         updatedAt: now,
       };
       chapter.primaryDraftId = draft.id;
@@ -223,13 +227,15 @@ export function createFirestoreStore(db, uid) {
     },
 
     async listDrafts(workId, chapterId) {
+      // updatedAt で並べると、書き直すたびに異稿の並びが入れ替わる。
+      // local 実装は作成順なので createdAt で揃える。
       return (await all('drafts', where('chapterId', '==', chapterId))).sort(
-        (a, b) => a.updatedAt - b.updatedAt,
+        (a, b) => (a.createdAt ?? a.updatedAt) - (b.createdAt ?? b.updatedAt),
       );
     },
 
     async createDraft(workId, chapterId, { name, text = '' }) {
-      const draft = { id: newId(), workId, chapterId, name, text, updatedAt: Date.now() };
+      const draft = { id: newId(), workId, chapterId, name, text, createdAt: Date.now(), updatedAt: Date.now() };
       await setDoc(ref('drafts', draft.id), draft);
       return draft;
     },
@@ -269,11 +275,14 @@ export function createFirestoreStore(db, uid) {
     },
 
     async dump() {
+      // 書き出した JSON は local 実装にも読み込まれる。文書 ID 順のまま渡すと
+      // 向こうでそのまま保持され、異稿と版の並びが崩れる。
+      const byCreated = (a, b) => (a.createdAt ?? a.updatedAt) - (b.createdAt ?? b.updatedAt);
       return {
         works: await all('works'),
-        versions: await all('versions'),
+        versions: (await all('versions')).sort(byCreated),
         chapters: await all('chapters'),
-        drafts: await all('drafts'),
+        drafts: (await all('drafts')).sort(byCreated),
         commits: await all('commits'),
       };
     },

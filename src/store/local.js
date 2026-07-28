@@ -82,6 +82,7 @@ export function createLocalStore({
           chapterId: chapter.id,
           name: '初稿',
           text: '',
+          createdAt: now(),
           updatedAt: now(),
         };
         chapter.primaryDraftId = draft.id;
@@ -140,6 +141,7 @@ export function createLocalStore({
             chapterId: newChapter.id,
             name: primary ? primary.name : '初稿',
             text: primary ? primary.text : '',
+            createdAt: now(),
             updatedAt: now(),
           };
           newChapter.primaryDraftId = newDraft.id;
@@ -175,6 +177,7 @@ export function createLocalStore({
           chapterId: chapter.id,
           name: '初稿',
           text: '',
+          createdAt: now(),
           updatedAt: now(),
         };
         chapter.primaryDraftId = draft.id;
@@ -222,7 +225,7 @@ export function createLocalStore({
 
     async createDraft(workId, chapterId, { name, text = '' }) {
       return mutate((db) => {
-        const draft = { id: uid(), workId, chapterId, name, text, updatedAt: now() };
+        const draft = { id: uid(), workId, chapterId, name, text, createdAt: now(), updatedAt: now() };
         db.drafts.push(draft);
         return draft;
       });

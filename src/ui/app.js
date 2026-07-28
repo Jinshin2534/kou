@@ -27,11 +27,12 @@ export function createApp(store) {
   let saveTimer = null;
   let pending = null;
   let destroyed = false;
-  // store.updateDraft への書き込みを呼び出し順に直列化する。ネットワーク越しでは
-  // 応答が呼び出し順に返るとは限らないため、Promise チェーンで前の書き込みが
-  // 終わってから次を投げることで、local.js（同期・呼び出し順のまま）と同じ
-  // 「最後に呼んだ書き込みが最終的に勝つ」挙動にする。
-  let writeChain = Promise.resolve();
+  // 書き込みの発行順に単調増加する連番。updateDraft の Promise は
+  // Firestore ではサーバー確認が返るまで解決しない（オフラインでは解決しない）ため、
+  // 呼び出し順に解決するとは限らない。古い書き込みが後から解決しても
+  // state.saveState / data.drafts を巻き戻さないよう、この連番で
+  // 「自分が最後に発行した書き込みか」を判定する。
+  let writeSeq = 0;
 
   const state = {
     screen: 'write',
@@ -75,8 +76,12 @@ export function createApp(store) {
     const ours = data.commits.filter((c) => c.versionId === state.versionId);
     if (!ours.length) return null;
     const parentIds = new Set(ours.map((c) => c.parentId));
-    const head = ours.find((c) => !parentIds.has(c.id));
-    return (head ?? ours[ours.length - 1]).id;
+    // 誰の parentId でもないコミット（＝葉）が複数あり得る: 同じ head から
+    // 2台の端末がそれぞれコミットすると、両方が葉になる（フォーク）。
+    // その場合は一番新しいものを HEAD とする。
+    const leaves = ours.filter((c) => !parentIds.has(c.id));
+    const candidates = leaves.length ? leaves : ours;
+    return candidates.reduce((newest, c) => (c.createdAt > newest.createdAt ? c : newest)).id;
   }
 
   let saveListeners = [];
@@ -105,37 +110,50 @@ export function createApp(store) {
 
   // 保存先の id は「書いた時点」のものを握る。書き終えるまでに章や異稿を切り替えられても、
   // 前の章の本文が今の章に書き込まれることがないようにする。
-  async function writeText({ workId, chapterId, draftId, text }) {
+  //
+  // store.updateDraft の Promise は決して await/control-flow のために使わない
+  // （updateDoc はサーバー確認が返るまで解決せず、オフラインでは解決しない —
+  // 直列に await すると最初のオフライン書き込みで永遠に詰まり、以降の入力は
+  // 揮発性の JS 変数の中に留まったままタブを閉じると消える）。
+  // 書き込みは発行した瞬間に data.drafts を同期的に書き換えてしまい、
+  // store への反映は完全に投げっぱなしにする。
+  function writeText({ workId, chapterId, draftId, text }) {
     if (!draftId) return;
     state.saveState = 'saving';
     notifySaveState();
-    // 前の書き込みが失敗していても後続は必ず走らせる（.catch で握りつぶしてから繋ぐ）。
-    // job をここで変数に固定するのが肝心: writeChain はこの直後にも次の呼び出しで
-    // 書き換えられるので、await するのは「自分の番」の Promise でなければならない。
-    const job = (writeChain = writeChain
-      .catch(() => {})
-      .then(() => store.updateDraft(workId, draftId, { text })));
-    try {
-      await job;
-      if (chapterId === state.chapterId) {
-        const draft = data.drafts.find((d) => d.id === draftId);
-        if (draft) draft.text = text;
-      }
-      state.saveState = 'saved';
-    } catch (error) {
-      state.saveState = 'failed';
-      console.error('保存に失敗しました', error);
+    if (chapterId === state.chapterId) {
+      const draft = data.drafts.find((d) => d.id === draftId);
+      if (draft) draft.text = text;
     }
-    notifySaveState();
+    const seq = ++writeSeq;
+    store.updateDraft(workId, draftId, { text }).then(
+      () => {
+        // 自分より後に発行された書き込みが既にあるなら、遅れて届いたこの結果で
+        // saveState を巻き戻さない。
+        if (seq !== writeSeq) return;
+        state.saveState = 'saved';
+        notifySaveState();
+      },
+      (error) => {
+        console.error('保存に失敗しました', error);
+        if (seq !== writeSeq) return;
+        state.saveState = 'failed';
+        notifySaveState();
+      },
+    );
   }
 
-  async function flushSave() {
+  // 同期関数。store への書き込みは投げるだけで、完了を待たない。
+  // これにより、オフラインで前の保存がサーバー確認待ちのまま詰まっていても、
+  // 章の切り替えなどの操作系アクション（先頭で flushSave() を呼ぶ）が
+  // ブロックされない。
+  function flushSave() {
     if (!pending || destroyed) return;
     const job = pending;
     pending = null;
     clearTimeout(saveTimer);
     saveTimer = null;
-    await writeText(job);
+    writeText(job);
   }
 
   const actions = {
@@ -185,7 +203,15 @@ export function createApp(store) {
       }
 
       // 置き換えに失敗したら元に戻せるよう、直前の状態を控えておく。
+      // メモリ上に持っているだけでは、タブを閉じる／クラッシュするとこの控えごと消える。
+      // load() 自体は成功したが内容が期待外れだった、というケースでも手動で戻せるよう、
+      // 破壊的な置き換えの前にファイルとしても書き出しておく。
       const backup = await store.dump();
+      actions.download(
+        `kou-backup-${new Date().toISOString().slice(0, 10)}.json`,
+        JSON.stringify(backup, null, 2),
+        'application/json',
+      );
       state.workId = null;
       state.versionId = null;
       state.chapterId = null;
@@ -271,11 +297,13 @@ export function createApp(store) {
       saveTimer = setTimeout(() => flushSave(), SAVE_DELAY);
     },
     // 即座に書く。待機中の自動保存は捨てて、渡された内容で上書きする。
+    // writeText は同期的に data.drafts を書き換えるので、この関数が返った時点で
+    // 呼び出し側は最新のテキストを data.drafts から読める（store への反映は待たない）。
     async setText(text) {
       pending = null;
       clearTimeout(saveTimer);
       saveTimer = null;
-      await writeText({
+      writeText({
         workId: state.workId,
         chapterId: state.chapterId,
         draftId: state.draftId,
@@ -433,9 +461,16 @@ export function createApp(store) {
       const previous = head ? chaptersAt(data.commits, head) : {};
       const chapters = {};
       for (const chapter of data.chapters) {
-        const draft = (await store.listDrafts(state.workId, chapter.id)).find(
-          (d) => d.id === chapter.primaryDraftId,
-        );
+        // 今開いている章は、直前の書き込みが store にまだ届いていないかもしれない
+        // （writeText は投げっぱなしで、完了を待たない）。data.drafts はその書き込みで
+        // 既に同期的に書き換わっているので、store から読み直すのではなくそちらを使う。
+        // 他の章は data.drafts の入れ物がその章のものではないので、従来通り store から読む。
+        const draft =
+          chapter.id === state.chapterId
+            ? data.drafts.find((d) => d.id === chapter.primaryDraftId)
+            : (await store.listDrafts(state.workId, chapter.id)).find(
+                (d) => d.id === chapter.primaryDraftId,
+              );
         const snapshot = { title: chapter.title, text: draft ? draft.text : '' };
         const before = previous[chapter.id];
         if (!before || before.title !== snapshot.title || before.text !== snapshot.text) {

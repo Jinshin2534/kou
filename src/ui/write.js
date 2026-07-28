@@ -185,7 +185,14 @@ export function renderWrite({ state, data, actions }) {
     const out = document.createElement('button');
     out.className = 'write__toggle';
     out.textContent = 'ログアウト';
-    out.addEventListener('click', () => window.__auth.signOut());
+    out.addEventListener('click', () => {
+      // flushSave() はもう同期関数で store への書き込みを待たないので、
+      // ここで待たずに呼んでも直前の入力を投げてから抜けられる（以前は
+      // await flushSave() を省いていたため、最大 SAVE_DELAY 分の入力が
+      // ログアウトで失われていた）。
+      actions.flushSave();
+      window.__auth.signOut();
+    });
     footer.append(out);
   }
 
