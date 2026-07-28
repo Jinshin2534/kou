@@ -1,0 +1,16 @@
+project_id = "vlrtnkfxpqurtgpqivil"
+
+[auth]
+# マジックリンクの戻り先。ここに無い URL へは戻せない。
+site_url = "https://kou-two.vercel.app"
+additional_redirect_urls = [
+  "https://kou-two.vercel.app",
+  "http://localhost:5320",
+]
+jwt_expiry = 3600
+enable_signup = true
+
+[auth.email]
+enable_signup = true
+# 個人用なので確認メールはマジックリンクそのもの。パスワードは使わない。
+enable_confirmations = true
