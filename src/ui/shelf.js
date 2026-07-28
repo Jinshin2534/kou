@@ -14,6 +14,10 @@ export function renderShelf({ data, actions }) {
 
   const markdownButton = document.createElement('button');
   markdownButton.textContent = '開いている作品を .md で書き出す';
+  // 章の Markdown インポート（chapters.js）はこの逆ではないので、その旨を明記する
+  // （README の説明と同じ文言）。
+  markdownButton.title =
+    '章の Markdown インポートはこの逆ではない。読み込んだ1ファイルは常にちょうど1つの新しい章になる（複数章に自動分割されたりはしない）。';
   markdownButton.addEventListener('click', () => actions.exportChaptersMarkdown());
 
   const exportButton = document.createElement('button');
@@ -54,7 +58,12 @@ export function renderShelf({ data, actions }) {
 
     const meta = document.createElement('span');
     meta.className = 'shelf__meta';
-    meta.textContent = new Date(work.updatedAt).toLocaleString('ja-JP');
+    // I6: 最終更新（work.updatedAt）は本文保存では触られていなかったため書架の並びも
+    // 表示も執筆量を反映していなかった（app.js の writeWithConflictCheck で touch する
+    // ように直した）。総字数と現在の版名も併せて出す。
+    const chars = (work.totalChars ?? 0).toLocaleString();
+    const version = work.versionName ? ` ／ ${work.versionName}` : '';
+    meta.textContent = `${new Date(work.updatedAt).toLocaleString('ja-JP')} ／ ${chars}字${version}`;
 
     const remove = document.createElement('button');
     remove.className = 'shelf__remove';

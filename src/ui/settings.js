@@ -10,6 +10,11 @@ const THEMES = [
   { value: 'dark', label: '黒' },
 ];
 
+const ON_OFF = [
+  { value: true, label: 'オン' },
+  { value: false, label: 'オフ' },
+];
+
 export function applySettings(settings) {
   const font = FONTS.find((f) => f.value === settings.fontFamily) ?? FONTS[0];
   const root = document.documentElement;
@@ -49,6 +54,20 @@ export function renderSettings({ state, data, actions }) {
       actions.updateSettings({ charsPerLine: v }),
     ),
     choice('テーマ', THEMES, settings.theme, (v) => actions.updateSettings({ theme: v })),
+    // I5: 以前は actions.toggleFocus / toggleTypewriter を呼ぶ場所が無く、死んだコード
+    // だった。ここから切り替えられるようにし、work.settings に永続化する。
+    choice(
+      'フォーカスモード（今の段落だけ強調）',
+      ON_OFF,
+      settings.focusMode ?? true,
+      (v) => actions.updateSettings({ focusMode: v }),
+    ),
+    choice(
+      'タイプライターモード（キャレットを中央に保つ）',
+      ON_OFF,
+      settings.typewriter ?? true,
+      (v) => actions.updateSettings({ typewriter: v }),
+    ),
   );
 
   const preview = document.createElement('div');

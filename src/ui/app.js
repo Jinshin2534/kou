@@ -5,6 +5,7 @@ import { renderSettings, applySettings } from './settings.js';
 import { renderShelf } from './shelf.js';
 import { chaptersAt } from '../lib/history.js';
 import { detectConflict } from '../lib/conflict.js';
+import { countChars } from '../lib/counter.js';
 
 // 保存に失敗した本文の最終退避先。store とは別に、この1件だけを持つ
 // （kou:db という別のキーを使うローカル store の保存領域とは衝突しない）。
@@ -73,10 +74,40 @@ export function createApp(store) {
   let root = null;
   let data = { works: [], work: null, versions: [], chapters: [], drafts: [], commits: [] };
 
+  // I6: 書架の各作品行に「総字数」「現在の版」を出すための集計。書架に並ぶ全作品それぞれの
+  // 現在の版・各章・その本文異稿を読む必要があるため store 呼び出しが多いが、著者個人の
+  // 作品数の規模では許容範囲と判断した。
+  async function shelfSummary(work) {
+    const versions = await store.listVersions(work.id);
+    const currentVersion = versions.find((v) => v.id === work.currentVersionId) ?? null;
+    const chapters = currentVersion ? await store.listChapters(work.id, currentVersion.id) : [];
+    let totalChars = 0;
+    for (const chapter of chapters) {
+      const drafts = await store.listDrafts(work.id, chapter.id);
+      const primary = drafts.find((d) => d.id === chapter.primaryDraftId);
+      if (primary) totalChars += countChars(primary.text);
+    }
+    return { ...work, totalChars, versionName: currentVersion?.name ?? '' };
+  }
+
   async function reload() {
-    data.works = await store.listWorks();
+    const works = await store.listWorks();
+    data.works = await Promise.all(works.map((work) => shelfSummary(work)));
     if (!state.workId) return;
     data.work = await store.getWork(state.workId);
+    // I7: 別タブでの削除・読み込みなどで、開いていた作品自体が既に無いことがある。
+    // ここで書架へフォールバックせずに data.work.currentVersionId を読むと例外になる。
+    if (!data.work) {
+      state.workId = null;
+      state.versionId = null;
+      state.chapterId = null;
+      state.draftId = null;
+      data.versions = [];
+      data.chapters = [];
+      data.drafts = [];
+      data.commits = [];
+      return;
+    }
     data.versions = await store.listVersions(state.workId);
     state.versionId = state.versionId ?? data.work.currentVersionId;
     data.chapters = await store.listChapters(state.workId, state.versionId);
@@ -96,7 +127,12 @@ export function createApp(store) {
       state.draftId = chapter?.primaryDraftId ?? data.drafts[0]?.id ?? null;
     }
     data.commits = await store.listCommits(state.workId);
-    if (data.work) applySettings(data.work.settings);
+    applySettings(data.work.settings);
+    // I5: フォーカスモード・タイプライターモードは work.settings に永続化される。
+    // reload() のたびにここから読み直すことで、設定画面での切り替えとリロード後の
+    // 復元の両方をこの一箇所でまかなう。
+    state.focusMode = data.work.settings.focusMode ?? true;
+    state.typewriter = data.work.settings.typewriter ?? true;
   }
 
   // data.commits の並び順は store の実装(local=挿入順 / firestore=createdAt順)に
@@ -137,6 +173,15 @@ export function createApp(store) {
   }
   window.addEventListener('online', notifyOnline);
   window.addEventListener('offline', notifyOnline);
+  // C2: 600ms のデバウンスの間に ⌘W / ⌘R / ラップトップを閉じるなどでタブが閉じられると、
+  // それまでの pending な自動保存が飛ばされないまま最後の一文が消える。pagehide は
+  // beforeunload と違って BFCache を妨げず、モバイルでも確実に発火する。
+  // flushSave() は同期関数（store への書き込みは投げっぱなし）なので、ここで
+  // await せずに呼んでも呼び出し元をブロックしない。
+  function handlePageHide() {
+    flushSave();
+  }
+  window.addEventListener('pagehide', handlePageHide);
 
   // 保存先の id は「書いた時点」のものを握る。書き終えるまでに章や異稿を切り替えられても、
   // 前の章の本文が今の章に書き込まれることがないようにする。
@@ -152,24 +197,51 @@ export function createApp(store) {
   // すぐ解決する（サーバー確認を待つ write とは違う）ため、await してもここが詰まることはない。
   // この関数自体を await する側は無い（fire-and-forget）ので、conflictCheck に多少
   // 時間がかかっても flushSave() / 呼び出し元をブロックしない。
-  function clearRescueIfMatches(draftId) {
+  // I2: 退避スロットは以前 1 件しか持てなかった（unconditional setItem）ため、2 回目の
+  // 失敗が 1 回目の退避を消してしまっていた。draftId をキーにした配列にして、
+  // 複数の異稿・複数の失敗をそれぞれ保持する。
+  function readRescueList() {
     try {
-      const rescue = JSON.parse(localStorage.getItem(RESCUE_KEY) ?? 'null');
-      if (rescue && rescue.draftId === draftId) localStorage.removeItem(RESCUE_KEY);
+      const raw = JSON.parse(localStorage.getItem(RESCUE_KEY) ?? 'null');
+      if (!raw) return [];
+      // 旧形式（単一オブジェクト）が残っていても読めるようにしておく。
+      return Array.isArray(raw) ? raw : [raw];
     } catch {
       // 壊れた JSON が入っていた場合はそのまま放置しても実害はない
-      // （次回起動時の JSON.parse 側でも同様に無視される）。
+      // （次回起動時にも同様に無視され、[] 扱いになるだけ）。
+      return [];
+    }
+  }
+
+  function writeRescueList(list) {
+    if (list.length === 0) {
+      localStorage.removeItem(RESCUE_KEY);
+    } else {
+      localStorage.setItem(RESCUE_KEY, JSON.stringify(list));
+    }
+  }
+
+  function clearRescueIfMatches(draftId) {
+    try {
+      const list = readRescueList();
+      const next = list.filter((r) => r.draftId !== draftId);
+      if (next.length !== list.length) writeRescueList(next);
+    } catch {
+      // ここで消せなくても実害はない（残っていれば次回の checkRescue でまた尋ねる）。
     }
   }
 
   // 保存できなかった本文をこの端末に逃がす。versionId を必ず含める:
   // checkRescue() が復元先の章がまだ存在するか確かめるのに
   // store.listChapters(workId, versionId) が要るため。
+  // 同じ draftId の古い退避は新しい内容で置き換える（同じ異稿について複数の
+  // 古い退避を積み上げても意味が無いため）。呼び出し側で try/catch すること:
+  // ここでの setItem 失敗（さらなる容量超過）が、保存失敗を知らせる alert() の
+  // 到達を妨げてはならない（C1）。
   function stashToRescue({ workId, chapterId, draftId, text }) {
-    localStorage.setItem(
-      RESCUE_KEY,
-      JSON.stringify({ workId, versionId: state.versionId, chapterId, draftId, text, at: Date.now() }),
-    );
+    const list = readRescueList().filter((r) => r.draftId !== draftId);
+    list.push({ workId, versionId: state.versionId, chapterId, draftId, text, at: Date.now() });
+    writeRescueList(list);
   }
 
   async function writeWithConflictCheck(workId, chapterId, draftId, text) {
@@ -201,7 +273,13 @@ export function createApp(store) {
             // 相手の本文が何にも残らず消えるので、失敗した保存と同じ
             // localStorage の退避経路に落とす。
             console.error('競合した本文の退避に失敗しました', stashError);
-            stashToRescue({ workId, chapterId, draftId, text: remote.text });
+            try {
+              stashToRescue({ workId, chapterId, draftId, text: remote.text });
+            } catch (rescueError) {
+              // 退避先の localStorage も書けない（容量超過など）。ここは競合チェック
+              // という副次経路なので致命的に扱わず、ログだけ残して本処理を続ける。
+              console.error('競合の退避にも失敗しました', rescueError);
+            }
           }
         }
       } catch (error) {
@@ -214,6 +292,13 @@ export function createApp(store) {
     // 自分の書き込みが成功した内容を新しい基準にする。updatedAt は store が
     // 付けたサーバー/ローカルの値を使う（無ければ Date.now() でフォールバック）。
     baselines.set(draftId, { text, updatedAt: updated?.updatedAt ?? Date.now() });
+    // I6: work.updatedAt は本文保存では一切触られていなかったため、書架の「最終更新」も
+    // 並び順も執筆量を反映していなかった。ここで touch するが、await はしない
+    // （updateWork の確認を待つと、この関数の呼び出し元である writeText の
+    // fire-and-forget という前提が崩れ、オフライン時に詰まりかねない）。
+    store
+      .updateWork(workId, {})
+      .catch((error) => console.error('作品の最終更新時刻を更新できませんでした', error));
     return updated;
   }
 
@@ -235,7 +320,8 @@ export function createApp(store) {
         notifySaveState();
         failedAlerted = false;
         // この異稿の分の退避だけ消す。他の異稿の退避が残っていれば触らない
-        // （単一キーなので、無関係な保存成功で他の退避を消してしまわないため）。
+        // （配列に draftId ごとに積んでいるので、無関係な保存成功で他の退避を
+        // 消してしまうことはない）。
         clearRescueIfMatches(draftId);
       },
       (error) => {
@@ -244,13 +330,33 @@ export function createApp(store) {
         state.saveState = 'failed';
         notifySaveState();
         // 書けなかった本文をこの端末に残す。次回起動時に復元を提案する。
-        stashToRescue({ workId, chapterId, draftId, text });
+        // C1: この setItem 自体が失敗する（例えば容量超過が保存とこの退避の両方の
+        // 原因になっている場合）ことがある。その場合でも下の alert() には必ず
+        // 到達させる — footer の保存ラベルは write--bare（Esc モード）で隠れるため、
+        // ここで知らせ損ねると著者は何も気付けない。
+        let rescued = true;
+        try {
+          stashToRescue({ workId, chapterId, draftId, text });
+        } catch (rescueError) {
+          rescued = false;
+          console.error('退避にも失敗しました', rescueError);
+        }
         // 同じ理由でオフラインのまま打鍵が続くと、この then/catch は自動保存のたびに
         // 何度も呼ばれる。毎回 alert() すると入力の邪魔になるので、'failed' に
         // 入った最初の一回だけ知らせる。
         if (!failedAlerted) {
           failedAlerted = true;
-          alert('保存に失敗しました。書いた内容はこの端末に退避しました。通信を確認してください。');
+          alert(
+            rescued
+              ? '保存に失敗しました。書いた内容はこの端末に退避しました。通信を確認してください。続けて、念のため全データをJSONで書き出します。'
+              : '保存に失敗し、この端末への退避もできませんでした（保存領域の容量が一杯の可能性があります）。続けて、今書けているデータをJSONで書き出しますので、必ず保存してください。',
+          );
+          // 退避が効かない状況（容量超過など）で著者が唯一頼れる回収手段。
+          // exportAll() は store.dump() を読むだけなので、書き込みが失敗する状況でも
+          // 動作する見込みが高い。
+          actions
+            .exportAll()
+            .catch((exportError) => console.error('緊急の書き出しにも失敗しました', exportError));
         }
       },
     );
@@ -480,14 +586,12 @@ export function createApp(store) {
       state.screen = 'compare';
       render();
     },
-    toggleFocus() {
-      state.focusMode = !state.focusMode;
-      render();
-    },
-    toggleTypewriter() {
-      state.typewriter = !state.typewriter;
-      render();
-    },
+    // I5: フォーカスモード・タイプライターモードの切り替えは、以前はこの位置に
+    // state だけを書き換える toggleFocus()/toggleTypewriter() があったが、呼び出し元が
+    // どこにも無い死んだコードだった（仕様は両方が切り替え可能だと約束している）。
+    // 設定画面（settings.js）から updateSettings({ focusMode }) / updateSettings({ typewriter })
+    // を直接呼んで work.settings に永続化する形に置き換えたため、単純な toggle アクションは
+    // 廃止した（reload() がここから state.focusMode / state.typewriter を復元する）。
     reload: async () => {
       await reload();
       render();
@@ -638,8 +742,16 @@ export function createApp(store) {
       await flushSave();
       const snapshot = chaptersAt(data.commits, commitId);
       for (const [chapterId, chapter] of Object.entries(snapshot)) {
-        if (!data.chapters.some((c) => c.id === chapterId)) continue;
-        await store.createDraft(state.workId, chapterId, {
+        // I3: 章が既に削除されていると、以前はここで黙って skip していた。
+        // すると、コミットに記録された本文はその章を復元しない限り二度と読めない
+        // （restore() 自身がその唯一の手段のはずなのに、それが機能していなかった）。
+        // 章が無ければ、そのスナップショットのタイトルで作り直してから復元する。
+        let targetChapterId = chapterId;
+        if (!data.chapters.some((c) => c.id === chapterId)) {
+          const recreated = await store.createChapter(state.workId, state.versionId, chapter.title);
+          targetChapterId = recreated.id;
+        }
+        await store.createDraft(state.workId, targetChapterId, {
           name: `復元 ${new Date().toLocaleString('ja-JP')}`,
           text: chapter.text,
         });
@@ -659,41 +771,55 @@ export function createApp(store) {
   // 「いいえ」を選んだ場合、この場では localStorage から消さない。1回の誤クリックで
   // 復元不能に本文を失わせないため、次回起動時にもう一度尋ねる（＝退避データを
   // 積極的に消すのは「復元した」ときだけ）。
+  // I2: 退避スロットは配列（複数件）なので、1件ずつ順に尋ねる。
   async function checkRescue() {
-    let rescue;
-    try {
-      rescue = JSON.parse(localStorage.getItem(RESCUE_KEY) ?? 'null');
-    } catch {
-      localStorage.removeItem(RESCUE_KEY);
-      return;
-    }
-    if (!rescue) return;
-    if (!confirm('前回、保存できなかった本文があります。異稿として復元しますか')) return;
-    try {
-      // createDraft は章の存在を検証しない。復元先の章（あるいは作品ごと）が
-      // その後に削除されていると、到達不能な孤立異稿を作ったうえで
-      // 「復元できた」と誤って報告し、退避データも消してしまう。
-      // 先に章がまだ存在するか確かめる。
-      const chapters = await store.listChapters(rescue.workId, rescue.versionId);
-      if (!chapters.some((c) => c.id === rescue.chapterId)) {
-        alert('復元先の章が見つかりませんでした。控えはこの端末に残してあります。');
-        return;
+    const list = readRescueList();
+    if (list.length === 0) return;
+    const remaining = [];
+    let changed = false;
+    for (const rescue of list) {
+      if (
+        !confirm(
+          `前回、保存できなかった本文があります（${new Date(rescue.at).toLocaleString('ja-JP')}）。異稿として復元しますか`,
+        )
+      ) {
+        // 「いいえ」を選んだ場合、この場では消さない。1回の誤クリックで復元不能に
+        // 本文を失わせないため、次回起動時にもう一度尋ねる（＝積極的に消すのは
+        // 「復元した」ときだけ）。
+        remaining.push(rescue);
+        continue;
       }
-      await store.createDraft(rescue.workId, rescue.chapterId, {
-        name: `復旧 ${new Date(rescue.at).toLocaleString('ja-JP')}`,
-        text: rescue.text,
-      });
-      localStorage.removeItem(RESCUE_KEY);
-      // 今開いている章の異稿一覧に増えたかもしれないので、見えるように更新する。
-      if (rescue.workId === state.workId && rescue.chapterId === state.chapterId) {
-        await reload();
+      try {
+        // createDraft は章の存在を検証しない。復元先の章（あるいは作品ごと）が
+        // その後に削除されていると、到達不能な孤立異稿を作ったうえで
+        // 「復元できた」と誤って報告し、退避データも消してしまう。
+        // 先に章がまだ存在するか確かめる。章が無ければ、このエントリは消さずに
+        // 残す（I3 の restore() と違い、ここは「見つからなかった」ことをそのまま
+        // 伝えるだけに留める — 何の章として作り直すべきか著者の意図が分からないため）。
+        const chapters = await store.listChapters(rescue.workId, rescue.versionId);
+        if (!chapters.some((c) => c.id === rescue.chapterId)) {
+          alert('復元先の章が見つかりませんでした。控えはこの端末に残してあります。');
+          remaining.push(rescue);
+          continue;
+        }
+        await store.createDraft(rescue.workId, rescue.chapterId, {
+          name: `復旧 ${new Date(rescue.at).toLocaleString('ja-JP')}`,
+          text: rescue.text,
+        });
+        changed = true;
+        // 今開いている章の異稿一覧に増えたかもしれないので、見えるように更新する。
+        if (rescue.workId === state.workId && rescue.chapterId === state.chapterId) {
+          await reload();
+        }
+      } catch (error) {
+        // 復元の書き込み自体が失敗したら、退避データは消さずに残し、次回また尋ねる。
+        console.error('退避の復元に失敗しました', error);
+        alert('復元に失敗しました。退避した内容はこの端末に残っています。');
+        remaining.push(rescue);
       }
-      render();
-    } catch (error) {
-      // 復元の書き込み自体が失敗したら、退避データは消さずに残し、次回また尋ねる。
-      console.error('退避の復元に失敗しました', error);
-      alert('復元に失敗しました。退避した内容はこの端末に残っています。');
     }
+    writeRescueList(remaining);
+    if (changed) render();
   }
 
   return {
@@ -713,11 +839,15 @@ export function createApp(store) {
       }
       await checkRescue();
     },
-    // ログアウトなど、この app インスタンスを捨てるときに呼ぶ。保留中の自動保存タイマーを
-    // 止め、失効したトークンに対して書き込みが飛ばないようにする。window の
-    // online/offline リスナーもここで外す（次のログインで新しい app インスタンスが
+    // ログアウトなど、この app インスタンスを捨てるときに呼ぶ。
+    // C2: 以前は pending を無条件に捨てており、保存タイマー待ちの入力がログアウトや
+    // ページ遷移でそのまま失われていた。まず flushSave() で今保留中の分を送ってから
+    // （destroyed はまだ false なので、この flushSave() 自身は握りつぶされない）、
+    // 以降の書き込みが飛ばないよう destroyed を立てる。window の online/offline/
+    // pagehide リスナーもここで外す（次のログインで新しい app インスタンスが
     // 自分のリスナーを登録するため、外さないと二重に増え続ける）。
     destroy() {
+      flushSave();
       destroyed = true;
       pending = null;
       clearTimeout(saveTimer);
@@ -725,6 +855,7 @@ export function createApp(store) {
       root = null;
       window.removeEventListener('online', notifyOnline);
       window.removeEventListener('offline', notifyOnline);
+      window.removeEventListener('pagehide', handlePageHide);
     },
   };
 }

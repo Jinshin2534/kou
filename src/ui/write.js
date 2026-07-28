@@ -186,6 +186,18 @@ export function renderWrite({ state, data, actions }) {
     out.className = 'write__toggle';
     out.textContent = 'ログアウト';
     out.addEventListener('click', () => {
+      // I1: オフラインのままログアウトすると、まだサーバーに届いていない書き込みが
+      // 認証情報を失った状態で再試行され、拒否されて消える。flushSave() はローカルの
+      // 保存キューに投げるだけでオンライン復帰後の再送を保証しない（このアプリの
+      // 設計上、書き込みはトークンが有効な間しか成立しない）ので、ここで一度
+      // 立ち止まって著者に確認する。
+      if (navigator.onLine === false) {
+        const proceed = confirm(
+          'オフラインです。まだ同期できていない変更はログアウトすると失われる可能性があります。' +
+            '先に「全部書き出す（JSON）」で控えを取っておくことをおすすめします。それでもログアウトしますか',
+        );
+        if (!proceed) return;
+      }
       // flushSave() はもう同期関数で store への書き込みを待たないので、
       // ここで待たずに呼んでも直前の入力を投げてから抜けられる（以前は
       // await flushSave() を省いていたため、最大 SAVE_DELAY 分の入力が

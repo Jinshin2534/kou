@@ -1,14 +1,10 @@
-const KEY = 'kou:db';
+import { DEFAULT_SETTINGS } from './defaults.js';
 
-export const DEFAULT_SETTINGS = {
-  orientation: 'vertical',
-  fontFamily: 'mincho',
-  fontSize: 16,
-  lineHeight: 2,
-  letterSpacing: 0.05,
-  charsPerLine: 20,
-  theme: 'light',
-};
+// main.js が「Firestore へ初回ログインした際、このキーの下にローカル原稿が残っていないか」
+// を確かめるために export する（I4: Firebase を有効にした瞬間に既存原稿が書架から
+// 見えなくなる問題への対処。取り込みを申し出るだけで、このキー自体は削除しない）。
+export const LOCAL_DB_KEY = 'kou:db';
+const KEY = LOCAL_DB_KEY;
 
 const EMPTY = { works: [], versions: [], chapters: [], drafts: [], commits: [] };
 
@@ -27,8 +23,19 @@ export function createLocalStore({
     return { ...structuredClone(EMPTY), ...JSON.parse(raw) };
   }
 
+  // C1: setItem は容量超過（QuotaExceededError）で例外を投げるが、生の DOMException を
+  // そのまま外に漏らすと呼び出し側（app.js）が「何が起きたか」を判別できない。
+  // 判別可能な code を持つエラーに包んで rethrow する。ここで握りつぶして
+  // 何もしないと、著者は自動保存が効いていないことに一切気付けない。
   function write(db) {
-    storage.setItem(KEY, JSON.stringify(db));
+    try {
+      storage.setItem(KEY, JSON.stringify(db));
+    } catch (cause) {
+      const error = new Error('容量が上限に達したため保存できませんでした');
+      error.code = 'kou/storage-full';
+      error.cause = cause;
+      throw error;
+    }
   }
 
   function mutate(fn) {

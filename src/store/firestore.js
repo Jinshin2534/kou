@@ -10,7 +10,7 @@ import {
   where,
   writeBatch,
 } from 'firebase/firestore';
-import { DEFAULT_SETTINGS } from './local.js';
+import { DEFAULT_SETTINGS } from './defaults.js';
 
 const COLLECTIONS = ['works', 'versions', 'chapters', 'drafts', 'commits'];
 

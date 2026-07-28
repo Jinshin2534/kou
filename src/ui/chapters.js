@@ -39,7 +39,15 @@ export function renderChapters({ state, data, actions }) {
         if (title) actions.updateChapter(chapter.id, { title });
       }],
       ['削除', () => {
-        if (confirm(`「${chapter.title}」を削除しますか（異稿も消えます）`)) {
+        // I3: 削除された章にひも付くコミット履歴は、その章を復元するまで参照できなく
+        // なる（restore() は章が無ければ作り直すようになったが、削除した直後は
+        // まだ何も復元していない）。著者が「削除＝記録した過去も一緒に消える」と
+        // 誤解しないよう、はっきり書いておく。
+        if (
+          confirm(
+            `「${chapter.title}」を削除しますか（異稿も消えます。この章の記録済みの履歴は、章を復元するまで参照できなくなります）`,
+          )
+        ) {
           actions.deleteChapter(chapter.id);
         }
       }],
@@ -65,6 +73,10 @@ export function renderChapters({ state, data, actions }) {
   const importMd = document.createElement('label');
   importMd.className = 'chapters__add';
   importMd.textContent = '.md を章として読み込む';
+  // 「開いている作品を .md で書き出す」の逆の操作だと誤解されないよう明記する
+  // （README の説明と同じ文言）。
+  importMd.title =
+    '章の Markdown インポートはこの逆ではない。読み込んだ1ファイルは常にちょうど1つの新しい章になる（複数章に自動分割されたりはしない）。';
   const importMdInput = document.createElement('input');
   importMdInput.type = 'file';
   importMdInput.accept = '.md,text/markdown';

@@ -172,3 +172,37 @@ describe('永続化', () => {
     expect(works.map((w) => w.title)).toEqual(['雨の駅']);
   });
 });
+
+describe('容量超過（C1）', () => {
+  it('setItem が例外を投げたら kou/storage-full な判別可能なエラーで rethrow する', async () => {
+    const failingStorage = {
+      getItem: () => null,
+      setItem: () => {
+        throw new DOMException('容量超過', 'QuotaExceededError');
+      },
+    };
+    const failingStore = createLocalStore({ storage: failingStorage, now: () => 1, uid: () => 'a' });
+
+    await expect(failingStore.createWork('雨の駅')).rejects.toMatchObject({
+      code: 'kou/storage-full',
+    });
+  });
+
+  it('quota エラーの原因（cause）を保持する', async () => {
+    const cause = new DOMException('容量超過', 'QuotaExceededError');
+    const failingStorage = {
+      getItem: () => null,
+      setItem: () => {
+        throw cause;
+      },
+    };
+    const failingStore = createLocalStore({ storage: failingStorage, now: () => 1, uid: () => 'a' });
+
+    try {
+      await failingStore.createWork('雨の駅');
+      throw new Error('この行に到達してはいけない');
+    } catch (error) {
+      expect(error.cause).toBe(cause);
+    }
+  });
+});
