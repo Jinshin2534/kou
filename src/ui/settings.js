@@ -17,6 +17,9 @@ export function applySettings(settings) {
   root.style.setProperty('--kou-editor-size', `${settings.fontSize}px`);
   root.style.setProperty('--kou-editor-line', String(settings.lineHeight));
   root.style.setProperty('--kou-editor-spacing', `${settings.letterSpacing}em`);
+  // Primer の明暗は data-color-mode が決める。ここを書き換えないと、
+  // 「白」「黒」を選んでも OS の設定のままで何も起きない。
+  root.dataset.colorMode = settings.theme === 'dark' ? 'dark' : 'light';
   root.dataset.theme = settings.theme;
 }
 
