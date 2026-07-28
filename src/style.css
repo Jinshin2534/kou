@@ -39,9 +39,42 @@ body {
   font-family: var(--kou-font-gothic);
 }
 
+/* 左のボタン類は塊のまま左端に固定し、右の情報は margin-left:auto で右端に寄せる。
+   space-between で個々を並べると、文字数の桁が変わるたびに全部の間隔が動く。 */
+.write__header {
+  justify-content: flex-start;
+  gap: 12px;
+  /* 幅が足りないときは 2 段に折り返す。はみ出させると右端の情報が読めなくなる。 */
+  flex-wrap: wrap;
+}
+
+.write__tools {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+}
+
+.write__header > .write__meta {
+  margin-left: auto;
+  flex: none;
+}
+
+/* 幅が足りないときに縮むのは章名だけ。ボタンと文字数は縮ませない。 */
+.write__title {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .write__meta {
   display: flex;
+  align-items: center;
   gap: 16px;
+  /* 桁が変わっても幅が跳ねないように、数字の字送りを揃える */
+  font-variant-numeric: tabular-nums;
 }
 
 .drafts {

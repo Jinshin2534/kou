@@ -20,6 +20,7 @@ export function renderWrite({ state, data, actions }) {
   const header = document.createElement('div');
   header.className = 'write__header';
   const title = document.createElement('span');
+  title.className = 'write__title';
   title.textContent = chapter ? chapter.title : '';
   const meta = document.createElement('span');
   meta.className = 'write__meta';
@@ -58,49 +59,54 @@ export function renderWrite({ state, data, actions }) {
   draftPicker.append(primaryButton);
 
   meta.append(countSpan, draftPicker);
-  header.append(title, meta);
+
+  // 左のボタン類は 1 つの塊にまとめる。ヘッダ直下に並べたままだと、
+  // 文字数の桁が増えたときに間隔が詰まって左端まで動いてしまう。
+  const tools = document.createElement('div');
+  tools.className = 'write__tools';
+  header.append(tools, title, meta);
 
   const toggle = document.createElement('button');
   toggle.className = 'write__toggle';
   toggle.textContent = '章立て';
   toggle.addEventListener('click', () => root.classList.toggle('write--panel'));
-  header.prepend(toggle);
+  tools.prepend(toggle);
 
   const shelfButton = document.createElement('button');
   shelfButton.className = 'write__toggle';
   shelfButton.textContent = '書架';
   shelfButton.addEventListener('click', () => actions.setScreen('shelf'));
-  header.prepend(shelfButton);
+  tools.prepend(shelfButton);
 
   const settingsButton = document.createElement('button');
   settingsButton.className = 'write__toggle';
   settingsButton.textContent = '設定';
   settingsButton.addEventListener('click', () => actions.setScreen('settings'));
-  header.prepend(settingsButton);
+  tools.prepend(settingsButton);
 
   const compareButton = document.createElement('button');
   compareButton.className = 'write__toggle';
   compareButton.textContent = '比較';
   compareButton.addEventListener('click', () => actions.setScreen('compare'));
-  header.prepend(compareButton);
+  tools.prepend(compareButton);
 
   const previewButton = document.createElement('button');
   previewButton.className = 'write__toggle';
   previewButton.textContent = '組見本';
   previewButton.addEventListener('click', () => actions.setScreen('preview'));
-  header.prepend(previewButton);
+  tools.prepend(previewButton);
 
   const historyButton = document.createElement('button');
   historyButton.className = 'write__toggle';
   historyButton.textContent = '履歴';
   historyButton.addEventListener('click', () => actions.setScreen('history'));
-  header.prepend(historyButton);
+  tools.prepend(historyButton);
 
   const commitButton = document.createElement('button');
   commitButton.className = 'write__toggle';
   commitButton.textContent = '記録する';
   commitButton.addEventListener('click', () => doCommit());
-  header.prepend(commitButton);
+  tools.prepend(commitButton);
 
   const versionPicker = document.createElement('select');
   versionPicker.className = 'write__version';
@@ -124,7 +130,7 @@ export function renderWrite({ state, data, actions }) {
     }
     actions.switchVersion(versionPicker.value);
   });
-  header.prepend(versionPicker);
+  tools.prepend(versionPicker);
 
   async function doCommit() {
     await actions.setText(editor.value);
