@@ -47,6 +47,16 @@ export function createApp(store) {
   let conflictCheckedDraftId = null;
   // saveState が 'failed' のまま新たに失敗が続く間、alert() を連発しない。
   let failedAlerted = false;
+  // 異稿 id → このクライアントが最後に実際に見た内容（reload() での読み取り、または
+  // 自分の書き込みが成功した結果）。競合判定はこれを基準にする。
+  //
+  // 現在時刻 Date.now() を基準にしてはいけない: 現在時刻は常にリモートの updatedAt
+  // 以降なので、detectConflict(local={now}, remote) の結果は必ず「ローカルが新しい」
+  // 側に倒れ、`keep: 'remote'` の分岐が構造的に到達不能になる。その状態で判定条件を
+  // `verdict.conflicted` まで広げると、リモートと文面が違うだけの通常の自動保存
+  // （章を開いて最初の一打鍵など）が毎回「競合」と誤判定され、単独執筆でも
+  // 「退避 …」異稿が溜まり続けるバグになる（このパスの修正理由）。
+  const baselines = new Map();
 
   const state = {
     screen: 'write',
@@ -76,6 +86,11 @@ export function createApp(store) {
     }
     conflictCheckedDraftId = null;
     data.drafts = state.chapterId ? await store.listDrafts(state.workId, state.chapterId) : [];
+    // ここで読んだ内容を「最後に見た状態」として基準を更新する。以降の competing 判定は
+    // 現在時刻ではなく、この基準と比べる。
+    for (const draft of data.drafts) {
+      baselines.set(draft.id, { text: draft.text, updatedAt: draft.updatedAt });
+    }
     if (!data.drafts.some((d) => d.id === state.draftId)) {
       const chapter = data.chapters.find((c) => c.id === state.chapterId);
       state.draftId = chapter?.primaryDraftId ?? data.drafts[0]?.id ?? null;
@@ -147,24 +162,47 @@ export function createApp(store) {
     }
   }
 
+  // 保存できなかった本文をこの端末に逃がす。versionId を必ず含める:
+  // checkRescue() が復元先の章がまだ存在するか確かめるのに
+  // store.listChapters(workId, versionId) が要るため。
+  function stashToRescue({ workId, chapterId, draftId, text }) {
+    localStorage.setItem(
+      RESCUE_KEY,
+      JSON.stringify({ workId, versionId: state.versionId, chapterId, draftId, text, at: Date.now() }),
+    );
+  }
+
   async function writeWithConflictCheck(workId, chapterId, draftId, text) {
-    if (conflictCheckedDraftId !== draftId) {
+    // 基準（このクライアントが最後に見た内容）が無い異稿は、まだ一度も読んだことが
+    // 無いので比べようがない。素直に書き込む。
+    const baseline = baselines.get(draftId);
+    if (baseline && conflictCheckedDraftId !== draftId) {
       conflictCheckedDraftId = draftId;
       try {
         const remote = (await store.listDrafts(workId, chapterId)).find((d) => d.id === draftId);
-        const verdict = detectConflict({ text, updatedAt: Date.now() }, remote);
-        // このアプリの writeText は常に自分（ローカル）の text を書き込む。つまり
-        // keep が 'remote' でも 'local' でも、最終的に store に残るのは常にローカルの
-        // 編集内容であり、負けた側（verdict.stash）はどちらの場合も上書きで失われる。
-        // detectConflict は勝敗にかかわらず負けた側を stash に入れて返す契約なので、
-        // conflicted な場合は常に退避する（brief の元コードは keep === 'remote' の
-        // ときしか退避しておらず、ローカルが新しい場合にリモート側の本文を
-        // 黙って失っていた）。
-        if (verdict.conflicted) {
-          await store.createDraft(workId, chapterId, {
-            name: `退避 ${new Date().toLocaleString('ja-JP')}`,
-            text: verdict.stash,
-          });
+        const verdict = detectConflict(baseline, remote);
+        // 判定は「最後に見た内容」対「今のリモート」。自分の直前の書き込みが
+        // 成功していれば baseline はその内容に更新済みなので、通常の自動保存では
+        // remote と一致し conflicted にならない。conflicted になるのは、
+        // 別の端末がこちらの知らない間に書き込んだときだけ。
+        //
+        // このアプリの writeText は常に今タイプ中の本文を書き込む（ローカル優先）。
+        // keep === 'remote'（＝相手の書き込みの方が新しい）のときだけ、失われる
+        // 相手の本文を異稿として残す。keep === 'local' のときは baseline 自体が
+        // 相手より新しい＝相手はこちらの内容を既に見ている状態なので、退避は不要。
+        if (verdict.conflicted && verdict.keep === 'remote') {
+          try {
+            await store.createDraft(workId, chapterId, {
+              name: `別端末の版 ${new Date().toLocaleString('ja-JP')}`,
+              text: remote.text,
+            });
+          } catch (stashError) {
+            // 退避の書き込み自体が失敗した（オフライン等）。ここで諦めると
+            // 相手の本文が何にも残らず消えるので、失敗した保存と同じ
+            // localStorage の退避経路に落とす。
+            console.error('競合した本文の退避に失敗しました', stashError);
+            stashToRescue({ workId, chapterId, draftId, text: remote.text });
+          }
         }
       } catch (error) {
         // 競合チェックの読み取り自体が失敗しても（オフラインでキャッシュも無い等）、
@@ -172,7 +210,11 @@ export function createApp(store) {
         console.error('競合チェックに失敗しました', error);
       }
     }
-    return store.updateDraft(workId, draftId, { text });
+    const updated = await store.updateDraft(workId, draftId, { text });
+    // 自分の書き込みが成功した内容を新しい基準にする。updatedAt は store が
+    // 付けたサーバー/ローカルの値を使う（無ければ Date.now() でフォールバック）。
+    baselines.set(draftId, { text, updatedAt: updated?.updatedAt ?? Date.now() });
+    return updated;
   }
 
   function writeText({ workId, chapterId, draftId, text }) {
@@ -202,10 +244,7 @@ export function createApp(store) {
         state.saveState = 'failed';
         notifySaveState();
         // 書けなかった本文をこの端末に残す。次回起動時に復元を提案する。
-        localStorage.setItem(
-          RESCUE_KEY,
-          JSON.stringify({ workId, chapterId, draftId, text, at: Date.now() }),
-        );
+        stashToRescue({ workId, chapterId, draftId, text });
         // 同じ理由でオフラインのまま打鍵が続くと、この then/catch は自動保存のたびに
         // 何度も呼ばれる。毎回 alert() すると入力の邪魔になるので、'failed' に
         // 入った最初の一回だけ知らせる。
@@ -631,6 +670,15 @@ export function createApp(store) {
     if (!rescue) return;
     if (!confirm('前回、保存できなかった本文があります。異稿として復元しますか')) return;
     try {
+      // createDraft は章の存在を検証しない。復元先の章（あるいは作品ごと）が
+      // その後に削除されていると、到達不能な孤立異稿を作ったうえで
+      // 「復元できた」と誤って報告し、退避データも消してしまう。
+      // 先に章がまだ存在するか確かめる。
+      const chapters = await store.listChapters(rescue.workId, rescue.versionId);
+      if (!chapters.some((c) => c.id === rescue.chapterId)) {
+        alert('復元先の章が見つかりませんでした。控えはこの端末に残してあります。');
+        return;
+      }
       await store.createDraft(rescue.workId, rescue.chapterId, {
         name: `復旧 ${new Date(rescue.at).toLocaleString('ja-JP')}`,
         text: rescue.text,
