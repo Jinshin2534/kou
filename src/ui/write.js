@@ -168,17 +168,20 @@ export function renderWrite({ state, data, actions }) {
   const saveLabel = document.createElement('span');
   footer.append(saveLabel);
 
-  const online = document.createElement('span');
-  online.className = 'write__online';
-  const setOnline = () => {
-    online.textContent = navigator.onLine ? '' : 'オフライン・同期待ち';
-  };
-  setOnline();
-  window.addEventListener('online', setOnline);
-  window.addEventListener('offline', setOnline);
-  footer.append(online);
-
+  // 同期先が無いときに「オフライン・同期待ち」と出しても意味がないので、
+  // ログインしている場合だけ表示する。window の online/offline リスナーは
+  // renderWrite (毎レンダー呼ばれる) の中では登録しない — app.js 側で一度だけ
+  // 登録し、actions.onOnline 経由でここに届ける。
   if (window.__auth) {
+    const online = document.createElement('span');
+    online.className = 'write__online';
+    const setOnline = (isOnline) => {
+      online.textContent = isOnline ? '' : 'オフライン・同期待ち';
+    };
+    setOnline(navigator.onLine);
+    actions.onOnline(setOnline);
+    footer.append(online);
+
     const out = document.createElement('button');
     out.className = 'write__toggle';
     out.textContent = 'ログアウト';

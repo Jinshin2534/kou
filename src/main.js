@@ -21,6 +21,8 @@ if (!hasFirebaseConfig) {
       start({ db: fb.db, uid: user.uid });
       return;
     }
+    window.__app?.destroy();
+    window.__app = undefined;
     root.replaceChildren(loginScreen(fb));
   });
 }

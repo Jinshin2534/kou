@@ -26,6 +26,12 @@ function isKouDump(data) {
 export function createApp(store) {
   let saveTimer = null;
   let pending = null;
+  let destroyed = false;
+  // store.updateDraft への書き込みを呼び出し順に直列化する。ネットワーク越しでは
+  // 応答が呼び出し順に返るとは限らないため、Promise チェーンで前の書き込みが
+  // 終わってから次を投げることで、local.js（同期・呼び出し順のまま）と同じ
+  // 「最後に呼んだ書き込みが最終的に勝つ」挙動にする。
+  let writeChain = Promise.resolve();
 
   const state = {
     screen: 'write',
@@ -62,20 +68,24 @@ export function createApp(store) {
     if (data.work) applySettings(data.work.settings);
   }
 
-  // data.commits は store から返ってきた挿入順(=作成順)のまま保持される。createdAt は
-  // ミリ秒精度しかなく、同一 ms に複数コミットが作られると createdAt だけでの並べ替えは
-  // 逆転しうる（Array#sort は安定ソートなので、同着なら元の並び=作成順が保たれる）。
-  // そのため「最新」を作成順(配列の末尾)で判定し、誤った親を拾わないようにする。
+  // data.commits の並び順は store の実装(local=挿入順 / firestore=createdAt順)に
+  // よって変わりうるので、それに頼らず構造的に HEAD を決める: この版のコミットのうち
+  // 誰の parentId にもなっていないものが HEAD。
   function headCommitId() {
     const ours = data.commits.filter((c) => c.versionId === state.versionId);
-    return ours.length ? ours[ours.length - 1].id : null;
+    if (!ours.length) return null;
+    const parentIds = new Set(ours.map((c) => c.parentId));
+    const head = ours.find((c) => !parentIds.has(c.id));
+    return (head ?? ours[ours.length - 1]).id;
   }
 
   let saveListeners = [];
+  let onlineListeners = [];
 
   function render() {
     if (!root) return;
     saveListeners = [];
+    onlineListeners = [];
     const screen = state.workId ? state.screen : 'shelf';
     root.replaceChildren(SCREENS[screen]({ state, data, actions }));
   }
@@ -84,14 +94,29 @@ export function createApp(store) {
     for (const listener of saveListeners) listener(state.saveState);
   }
 
+  // online/offline はページに一つだけ存在すればよいイベントなので、renderWrite の
+  // 中で毎レンダー登録する（Task 17 のバグ）のではなく、ここで一度だけ登録し、
+  // その時点の購読者リストに配る。destroy() で必ず外す。
+  function notifyOnline() {
+    for (const listener of onlineListeners) listener(navigator.onLine);
+  }
+  window.addEventListener('online', notifyOnline);
+  window.addEventListener('offline', notifyOnline);
+
   // 保存先の id は「書いた時点」のものを握る。書き終えるまでに章や異稿を切り替えられても、
   // 前の章の本文が今の章に書き込まれることがないようにする。
   async function writeText({ workId, chapterId, draftId, text }) {
     if (!draftId) return;
+    state.saveState = 'saving';
+    notifySaveState();
+    // 前の書き込みが失敗していても後続は必ず走らせる（.catch で握りつぶしてから繋ぐ）。
+    // job をここで変数に固定するのが肝心: writeChain はこの直後にも次の呼び出しで
+    // 書き換えられるので、await するのは「自分の番」の Promise でなければならない。
+    const job = (writeChain = writeChain
+      .catch(() => {})
+      .then(() => store.updateDraft(workId, draftId, { text })));
     try {
-      state.saveState = 'saving';
-      notifySaveState();
-      await store.updateDraft(workId, draftId, { text });
+      await job;
       if (chapterId === state.chapterId) {
         const draft = data.drafts.find((d) => d.id === draftId);
         if (draft) draft.text = text;
@@ -105,7 +130,7 @@ export function createApp(store) {
   }
 
   async function flushSave() {
-    if (!pending) return;
+    if (!pending || destroyed) return;
     const job = pending;
     pending = null;
     clearTimeout(saveTimer);
@@ -260,6 +285,9 @@ export function createApp(store) {
     flushSave,
     onSaveState(listener) {
       saveListeners.push(listener);
+    },
+    onOnline(listener) {
+      onlineListeners.push(listener);
     },
     async setScreen(screen) {
       await flushSave();
@@ -489,6 +517,19 @@ export function createApp(store) {
         return;
       }
       await actions.openWork(works[0].id);
+    },
+    // ログアウトなど、この app インスタンスを捨てるときに呼ぶ。保留中の自動保存タイマーを
+    // 止め、失効したトークンに対して書き込みが飛ばないようにする。window の
+    // online/offline リスナーもここで外す（次のログインで新しい app インスタンスが
+    // 自分のリスナーを登録するため、外さないと二重に増え続ける）。
+    destroy() {
+      destroyed = true;
+      pending = null;
+      clearTimeout(saveTimer);
+      saveTimer = null;
+      root = null;
+      window.removeEventListener('online', notifyOnline);
+      window.removeEventListener('offline', notifyOnline);
     },
   };
 }
