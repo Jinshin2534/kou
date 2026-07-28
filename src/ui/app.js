@@ -4,6 +4,11 @@ import { renderHistory } from './history-view.js';
 import { renderSettings, applySettings } from './settings.js';
 import { renderShelf } from './shelf.js';
 import { chaptersAt } from '../lib/history.js';
+import { detectConflict } from '../lib/conflict.js';
+
+// 保存に失敗した本文の最終退避先。store とは別に、この1件だけを持つ
+// （kou:db という別のキーを使うローカル store の保存領域とは衝突しない）。
+const RESCUE_KEY = 'kou:rescue';
 
 const SCREENS = {
   shelf: renderShelf,
@@ -33,6 +38,15 @@ export function createApp(store) {
   // state.saveState / data.drafts を巻き戻さないよう、この連番で
   // 「自分が最後に発行した書き込みか」を判定する。
   let writeSeq = 0;
+  // 異稿ごとに「このセッションで一度、競合チェック（リモート読み取り）をやったか」を
+  // 覚えておく。打鍵のたびの自動保存すべてでリモートを読みに行くと、キー入力のたびに
+  // Firestore へ読み取りが飛んで自動保存のたびに待たされる（オンライン時）。同じ異稿を
+  // 開いたまま書き続ける限り、直前の書き込みが自分自身の履歴になるので毎回確かめる意味が
+  // 薄い。reload() で異稿一覧を読み直すたび（章・異稿の切り替えなど）にリセットし、
+  // 「この異稿を開いてから最初の保存」でだけ確かめる。
+  let conflictCheckedDraftId = null;
+  // saveState が 'failed' のまま新たに失敗が続く間、alert() を連発しない。
+  let failedAlerted = false;
 
   const state = {
     screen: 'write',
@@ -60,6 +74,7 @@ export function createApp(store) {
       state.chapterId = data.chapters[0]?.id ?? null;
       state.draftId = null;
     }
+    conflictCheckedDraftId = null;
     data.drafts = state.chapterId ? await store.listDrafts(state.workId, state.chapterId) : [];
     if (!data.drafts.some((d) => d.id === state.draftId)) {
       const chapter = data.chapters.find((c) => c.id === state.chapterId);
@@ -117,6 +132,49 @@ export function createApp(store) {
   // 揮発性の JS 変数の中に留まったままタブを閉じると消える）。
   // 書き込みは発行した瞬間に data.drafts を同期的に書き換えてしまい、
   // store への反映は完全に投げっぱなしにする。
+  // 競合チェック（リモートを読んで、他端末が先に書いていないか確かめる）をしてから
+  // 実際の書き込みを投げる。read は Firestore のローカルキャッシュから返るのでオフラインでも
+  // すぐ解決する（サーバー確認を待つ write とは違う）ため、await してもここが詰まることはない。
+  // この関数自体を await する側は無い（fire-and-forget）ので、conflictCheck に多少
+  // 時間がかかっても flushSave() / 呼び出し元をブロックしない。
+  function clearRescueIfMatches(draftId) {
+    try {
+      const rescue = JSON.parse(localStorage.getItem(RESCUE_KEY) ?? 'null');
+      if (rescue && rescue.draftId === draftId) localStorage.removeItem(RESCUE_KEY);
+    } catch {
+      // 壊れた JSON が入っていた場合はそのまま放置しても実害はない
+      // （次回起動時の JSON.parse 側でも同様に無視される）。
+    }
+  }
+
+  async function writeWithConflictCheck(workId, chapterId, draftId, text) {
+    if (conflictCheckedDraftId !== draftId) {
+      conflictCheckedDraftId = draftId;
+      try {
+        const remote = (await store.listDrafts(workId, chapterId)).find((d) => d.id === draftId);
+        const verdict = detectConflict({ text, updatedAt: Date.now() }, remote);
+        // このアプリの writeText は常に自分（ローカル）の text を書き込む。つまり
+        // keep が 'remote' でも 'local' でも、最終的に store に残るのは常にローカルの
+        // 編集内容であり、負けた側（verdict.stash）はどちらの場合も上書きで失われる。
+        // detectConflict は勝敗にかかわらず負けた側を stash に入れて返す契約なので、
+        // conflicted な場合は常に退避する（brief の元コードは keep === 'remote' の
+        // ときしか退避しておらず、ローカルが新しい場合にリモート側の本文を
+        // 黙って失っていた）。
+        if (verdict.conflicted) {
+          await store.createDraft(workId, chapterId, {
+            name: `退避 ${new Date().toLocaleString('ja-JP')}`,
+            text: verdict.stash,
+          });
+        }
+      } catch (error) {
+        // 競合チェックの読み取り自体が失敗しても（オフラインでキャッシュも無い等）、
+        // 本文の保存は諦めずに試みる。
+        console.error('競合チェックに失敗しました', error);
+      }
+    }
+    return store.updateDraft(workId, draftId, { text });
+  }
+
   function writeText({ workId, chapterId, draftId, text }) {
     if (!draftId) return;
     state.saveState = 'saving';
@@ -126,19 +184,35 @@ export function createApp(store) {
       if (draft) draft.text = text;
     }
     const seq = ++writeSeq;
-    store.updateDraft(workId, draftId, { text }).then(
+    writeWithConflictCheck(workId, chapterId, draftId, text).then(
       () => {
         // 自分より後に発行された書き込みが既にあるなら、遅れて届いたこの結果で
         // saveState を巻き戻さない。
         if (seq !== writeSeq) return;
         state.saveState = 'saved';
         notifySaveState();
+        failedAlerted = false;
+        // この異稿の分の退避だけ消す。他の異稿の退避が残っていれば触らない
+        // （単一キーなので、無関係な保存成功で他の退避を消してしまわないため）。
+        clearRescueIfMatches(draftId);
       },
       (error) => {
         console.error('保存に失敗しました', error);
         if (seq !== writeSeq) return;
         state.saveState = 'failed';
         notifySaveState();
+        // 書けなかった本文をこの端末に残す。次回起動時に復元を提案する。
+        localStorage.setItem(
+          RESCUE_KEY,
+          JSON.stringify({ workId, chapterId, draftId, text, at: Date.now() }),
+        );
+        // 同じ理由でオフラインのまま打鍵が続くと、この then/catch は自動保存のたびに
+        // 何度も呼ばれる。毎回 alert() すると入力の邪魔になるので、'failed' に
+        // 入った最初の一回だけ知らせる。
+        if (!failedAlerted) {
+          failedAlerted = true;
+          alert('保存に失敗しました。書いた内容はこの端末に退避しました。通信を確認してください。');
+        }
       },
     );
   }
@@ -537,6 +611,43 @@ export function createApp(store) {
     },
   };
 
+  // 前回、保存に失敗して localStorage に退避した本文があれば復元を提案する。
+  // mount() の一番最初でこれをやると、画面がまだ何も描かれていない状態で
+  // confirm() のダイアログが出てしまう（著者が何のアプリか分かる前に確認を迫られる）。
+  // 初回の render() の後に呼ぶことで、著者は少なくとも一度アプリの画面を見てから
+  // ダイアログに向き合える。
+  //
+  // 「いいえ」を選んだ場合、この場では localStorage から消さない。1回の誤クリックで
+  // 復元不能に本文を失わせないため、次回起動時にもう一度尋ねる（＝退避データを
+  // 積極的に消すのは「復元した」ときだけ）。
+  async function checkRescue() {
+    let rescue;
+    try {
+      rescue = JSON.parse(localStorage.getItem(RESCUE_KEY) ?? 'null');
+    } catch {
+      localStorage.removeItem(RESCUE_KEY);
+      return;
+    }
+    if (!rescue) return;
+    if (!confirm('前回、保存できなかった本文があります。異稿として復元しますか')) return;
+    try {
+      await store.createDraft(rescue.workId, rescue.chapterId, {
+        name: `復旧 ${new Date(rescue.at).toLocaleString('ja-JP')}`,
+        text: rescue.text,
+      });
+      localStorage.removeItem(RESCUE_KEY);
+      // 今開いている章の異稿一覧に増えたかもしれないので、見えるように更新する。
+      if (rescue.workId === state.workId && rescue.chapterId === state.chapterId) {
+        await reload();
+      }
+      render();
+    } catch (error) {
+      // 復元の書き込み自体が失敗したら、退避データは消さずに残し、次回また尋ねる。
+      console.error('退避の復元に失敗しました', error);
+      alert('復元に失敗しました。退避した内容はこの端末に残っています。');
+    }
+  }
+
   return {
     state,
     data,
@@ -549,9 +660,10 @@ export function createApp(store) {
         state.screen = 'shelf';
         await reload();
         render();
-        return;
+      } else {
+        await actions.openWork(works[0].id);
       }
-      await actions.openWork(works[0].id);
+      await checkRescue();
     },
     // ログアウトなど、この app インスタンスを捨てるときに呼ぶ。保留中の自動保存タイマーを
     // 止め、失効したトークンに対して書き込みが飛ばないようにする。window の
