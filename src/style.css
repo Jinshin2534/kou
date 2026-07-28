@@ -588,3 +588,37 @@ label.chapters__add {
   font-size: 11px;
   padding: 2px 6px;
 }
+
+.login {
+  font-family: var(--kou-font-gothic);
+  max-width: 320px;
+  margin: 20vh auto;
+  text-align: center;
+}
+
+.login h1 {
+  font-family: var(--kou-font-mincho);
+  font-size: 40px;
+  font-weight: 400;
+  margin: 0;
+}
+
+.login p {
+  color: var(--fgColor-muted);
+  font-size: 13px;
+}
+
+.login button {
+  background: var(--bgColor-accent-emphasis);
+  color: var(--fgColor-onEmphasis);
+  border: 0;
+  border-radius: 6px;
+  font: inherit;
+  font-size: 13px;
+  padding: 8px 16px;
+  cursor: pointer;
+}
+
+.write__online {
+  color: var(--fgColor-attention);
+}

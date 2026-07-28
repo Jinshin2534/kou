@@ -20,6 +20,7 @@
     "vitest": "^4.1.10"
   },
   "dependencies": {
-    "@primer/primitives": "^11.9.0"
+    "@primer/primitives": "^11.9.0",
+    "firebase": "^12.16.0"
   }
 }

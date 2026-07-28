@@ -168,6 +168,24 @@ export function renderWrite({ state, data, actions }) {
   const saveLabel = document.createElement('span');
   footer.append(saveLabel);
 
+  const online = document.createElement('span');
+  online.className = 'write__online';
+  const setOnline = () => {
+    online.textContent = navigator.onLine ? '' : 'オフライン・同期待ち';
+  };
+  setOnline();
+  window.addEventListener('online', setOnline);
+  window.addEventListener('offline', setOnline);
+  footer.append(online);
+
+  if (window.__auth) {
+    const out = document.createElement('button');
+    out.className = 'write__toggle';
+    out.textContent = 'ログアウト';
+    out.addEventListener('click', () => window.__auth.signOut());
+    footer.append(out);
+  }
+
   function updateMeta() {
     const text = editor.value;
     const charsPerLine = data.work.settings.charsPerLine;
