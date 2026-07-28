@@ -706,6 +706,13 @@ export function createApp(store) {
       await reload();
       render();
     },
+    // あらすじとメモ用。値は既に入力欄に出ているので描き直す必要がない。
+    // 描き直すと、本文のカーソルが飛び、章のドラッグ開始も取り消される。
+    async updateChapterQuiet(chapterId, patch) {
+      await store.updateChapter(state.workId, chapterId, patch);
+      const chapter = data.chapters.find((c) => c.id === chapterId);
+      if (chapter) Object.assign(chapter, patch);
+    },
     async deleteChapter(chapterId) {
       await flushSave();
       if (data.chapters.length <= 1) return;

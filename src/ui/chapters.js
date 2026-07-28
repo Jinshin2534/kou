@@ -75,7 +75,7 @@ export function renderChapters({ state, data, actions }) {
     summary.value = chapter.summary;
     summary.placeholder = 'この章で書くこと';
     summary.addEventListener('change', () =>
-      actions.updateChapter(chapter.id, { summary: summary.value }),
+      actions.updateChapterQuiet(chapter.id, { summary: summary.value }),
     );
 
     const memo = document.createElement('textarea');
@@ -83,7 +83,7 @@ export function renderChapters({ state, data, actions }) {
     memo.value = chapter.memo;
     memo.rows = 2;
     memo.placeholder = 'メモ（人物・伏線・書き直したい点）';
-    memo.addEventListener('change', () => actions.updateChapter(chapter.id, { memo: memo.value }));
+    memo.addEventListener('change', () => actions.updateChapterQuiet(chapter.id, { memo: memo.value }));
 
     const tools = document.createElement('div');
     tools.className = 'chapters__tools';
